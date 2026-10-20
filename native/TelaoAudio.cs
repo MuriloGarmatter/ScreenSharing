@@ -5,6 +5,8 @@
 //   --mode all  : som de todos os apps que estão tocando, EXCETO os excluídos
 //                 (por nome do .exe e/ou PID, incluindo os processos filhos deles).
 //   --mode app  : som só do app dono da janela (--hwnd) ou do processo (--pid).
+//   --mode names: som só dos apps cujo .exe está em --include-names (e dos filhos
+//                 deles), ainda respeitando os excluídos.
 //   --mode list : lista os apps com sessão de áudio (JSON) e sai.
 //
 // Saída (stdout), pacotes binários: [tipo u8][id u32][tamanho u32][dados]
@@ -503,6 +505,7 @@ namespace TelaoAudio
     {
         static readonly Guid IID_IAudioSessionManager2 = new Guid("77AA99A0-1BD6-484F-8BC7-2C654C9A9B6F");
         static readonly HashSet<string> ExcludeNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        static readonly HashSet<string> IncludeNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         static readonly HashSet<uint> ExcludePids = new HashSet<uint>();
         static readonly Dictionary<uint, Capture> Active = new Dictionary<uint, Capture>();
         static readonly HashSet<uint> Reported = new HashSet<uint>();
@@ -523,6 +526,11 @@ namespace TelaoAudio
                 {
                     foreach (var name in value.Split(new[] { ',', ';', '\n' }, StringSplitOptions.RemoveEmptyEntries))
                         if (name.Trim().Length > 0) ExcludeNames.Add(name.Trim());
+                }
+                else if (key == "--include-names")
+                {
+                    foreach (var name in value.Split(new[] { ',', ';', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+                        if (name.Trim().Length > 0) IncludeNames.Add(name.Trim());
                 }
                 else if (key == "--exclude-pids")
                 {
@@ -582,8 +590,8 @@ namespace TelaoAudio
             {
                 try
                 {
-                    if (mode == "app") RefreshApp(ref mode, targetPid);
-                    else RefreshAll();
+                    if (mode == "app") RefreshApp(targetPid);
+                    else RefreshAll(mode == "names");
                 }
                 catch (Exception ex)
                 {
@@ -630,7 +638,7 @@ namespace TelaoAudio
             Output.Event("{\"event\":\"excluded\",\"pid\":" + info.Pid + ",\"name\":" + Output.Q(info.Name) + ",\"reason\":" + Output.Q(reason) + "}");
         }
 
-        static void RefreshAll()
+        static void RefreshAll(bool onlyIncluded)
         {
             var map = Processes.Snapshot();
             var tainted = Tainted(map);
@@ -639,6 +647,8 @@ namespace TelaoAudio
             {
                 ProcInfo info;
                 if (!map.TryGetValue(pid, out info)) continue;
+                // Modo "names": só entra quem é (ou é filho de) um dos apps escolhidos.
+                if (onlyIncluded && !Processes.Chain(map, pid).Any(p => IncludeNames.Contains(map[p].Name))) continue;
                 ProcInfo culprit;
                 if (InsideExcluded(map, pid, out culprit))
                 {
@@ -655,7 +665,9 @@ namespace TelaoAudio
             Sync(map, roots);
         }
 
-        static void RefreshApp(ref string mode, uint pid)
+        static bool warnedTarget;
+
+        static void RefreshApp(uint pid)
         {
             var map = Processes.Snapshot();
             ProcInfo info;
@@ -671,14 +683,36 @@ namespace TelaoAudio
                 Sync(map, new HashSet<uint>());
                 return;
             }
-            if (Tainted(map).Contains(pid))
+            var tainted = Tainted(map);
+            if (!tainted.Contains(pid))
             {
-                Output.Event("{\"event\":\"warning\",\"message\":" + Output.Q(info.Name + " abre apps excluídos; capturando todos os apps permitidos.") + "}");
-                mode = "all";
-                RefreshAll();
+                Sync(map, new HashSet<uint> { pid });
                 return;
             }
-            Sync(map, new HashSet<uint> { pid });
+            // A árvore do app contém um excluído. Acontece com o navegador quando o Telão
+            // foi aberto por um convite (vira filho dele). Captura só os galhos dessa árvore
+            // que tocam som sem levar o excluído junto (no Chromium, o processo de áudio).
+            // Nunca cai para "todos os apps": a pessoa pediu só o som deste.
+            var sessions = SessionPids();
+            var candidates = new HashSet<uint>();
+            foreach (var s in sessions)
+            {
+                if (s == pid || !map.ContainsKey(s) || !Processes.Chain(map, s).Contains(pid)) continue;
+                if (InsideExcluded(map, s, out culprit))
+                {
+                    if (ExcludeNames.Contains(culprit.Name)) ReportExcluded(map[s], culprit == map[s] ? "lista" : "filho de " + culprit.Name);
+                    continue;
+                }
+                if (tainted.Contains(s)) continue;
+                candidates.Add(s);
+            }
+            if (sessions.Contains(pid) && !warnedTarget)
+            {
+                warnedTarget = true;
+                Output.Event("{\"event\":\"warning\",\"message\":" + Output.Q("Parte do som de " + info.Name + " fica de fora: pegá-la levaria junto um app excluído.") + "}");
+            }
+            var roots = new HashSet<uint>(candidates.Where(p => !Processes.Chain(map, p).Skip(1).Any(candidates.Contains)));
+            Sync(map, roots);
         }
 
         static void Sync(Dictionary<uint, ProcInfo> map, HashSet<uint> wanted)

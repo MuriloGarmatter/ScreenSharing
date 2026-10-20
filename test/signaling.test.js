@@ -72,7 +72,7 @@ test('entrar, ver os outros, repassar sinal e estado, sair', async () => {
 
     a.send({ type: 'state', state: { sharing: true, audio: true, label: 'Tela 2', extra: 'ignorado' } });
     const st = await b.next('peer-state');
-    assert.deepEqual(st.state, { sharing: true, audio: true, label: 'Tela 2' });
+    assert.deepEqual(st.state, { sharing: true, paused: false, audio: true, label: 'Tela 2' });
 
     // Salas são isoladas: alguém em outra sala não vê nem recebe nada.
     const c = await connect(srv.url);

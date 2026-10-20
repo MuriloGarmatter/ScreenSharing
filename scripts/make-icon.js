@@ -1,14 +1,14 @@
 'use strict';
 
-// Gera o ícone do app (PNG 256×256) sem dependências: um monitor branco com
-// botão "play" sobre um quadrado arredondado em degradê azul→roxo.
-// Saídas: build/icon.png (usado pelo electron-builder) e src/renderer/assets/icon.png.
+// Gera os ícones do app sem dependências: um monitor branco com botão "play"
+// sobre um quadrado arredondado em degradê azul→roxo, mais as variações da
+// bandeja (normal e "ao vivo", com bolinha vermelha) e o selo da barra de tarefas.
+// Saídas: build/icon.png (electron-builder) e src/renderer/assets/*.png.
 
 const fs = require('node:fs');
 const path = require('node:path');
 const zlib = require('node:zlib');
 
-const SIZE = 256;
 const SS = 4; // supersampling por eixo, para bordas suaves
 
 function sdRoundRect(px, py, cx, cy, hw, hh, r) {
@@ -27,35 +27,47 @@ function sdPlay(px, py, cx, cy, r) {
   return -Math.hypot(x, y) * Math.sign(y);
 }
 
-function sample(x, y) {
-  // Coordenadas no espaço 0..48 (mesmo desenho do logo SVG da interface).
-  const s = 48 / SIZE;
-  const px = x * s;
-  const py = y * s;
+const WHITE = [255, 255, 255];
+const RED = [229, 57, 53];
+
+// Desenhos no espaço 0..48 (o mesmo do logo SVG da interface).
+function logo(px, py, { live = false } = {}) {
+  if (live) {
+    const d = Math.hypot(px - 38, py - 10);
+    if (d <= 8) return RED;
+    if (d <= 11) return WHITE;
+  }
   if (sdRoundRect(px, py, 24, 24, 24, 24, 12) > 0) return null;
   const t = (px + py) / 96;
-  const bg = [59 + (139 - 59) * t, 130 + (92 - 130) * t, 246 + (246 - 246) * t];
+  const bg = [59 + (139 - 59) * t, 130 + (92 - 130) * t, 246];
   const screenRing = Math.abs(sdRoundRect(px, py, 24, 21, 14, 9.5, 3.5)) - 1.5;
   const neck = sdRoundRect(px, py, 24, 33.5, 1.5, 2.5, 0);
   const base = sdRoundRect(px, py, 24, 37, 7, 1.5, 1.5);
   const play = sdPlay(px, py, 24.3, 21, 4.2);
-  const white = Math.min(screenRing, neck, base, play) <= 0;
-  return white ? [255, 255, 255] : bg;
+  return Math.min(screenRing, neck, base, play) <= 0 ? WHITE : bg;
 }
 
-function render() {
-  const rgba = Buffer.alloc(SIZE * SIZE * 4);
-  for (let y = 0; y < SIZE; y++) {
-    for (let x = 0; x < SIZE; x++) {
+function badge(px, py) {
+  const d = Math.hypot(px - 24, py - 24);
+  if (d <= 17) return RED;
+  if (d <= 22) return WHITE;
+  return null;
+}
+
+function render(size, draw) {
+  const rgba = Buffer.alloc(size * size * 4);
+  const scale = 48 / size;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
       let r = 0; let g = 0; let b = 0; let a = 0;
       for (let sy = 0; sy < SS; sy++) {
         for (let sx = 0; sx < SS; sx++) {
-          const c = sample(x + (sx + 0.5) / SS, y + (sy + 0.5) / SS);
+          const c = draw((x + (sx + 0.5) / SS) * scale, (y + (sy + 0.5) / SS) * scale);
           if (!c) continue;
           r += c[0]; g += c[1]; b += c[2]; a += 1;
         }
       }
-      const i = (y * SIZE + x) * 4;
+      const i = (y * size + x) * 4;
       if (a) {
         rgba[i] = Math.round(r / a);
         rgba[i + 1] = Math.round(g / a);
@@ -88,15 +100,15 @@ function chunk(type, data) {
   return Buffer.concat([len, body, crc]);
 }
 
-function encodePng(rgba) {
+function encodePng(size, rgba) {
   const header = Buffer.alloc(13);
-  header.writeUInt32BE(SIZE, 0);
-  header.writeUInt32BE(SIZE, 4);
+  header.writeUInt32BE(size, 0);
+  header.writeUInt32BE(size, 4);
   header[8] = 8; // bits por canal
   header[9] = 6; // RGBA
-  const raw = Buffer.alloc((SIZE * 4 + 1) * SIZE);
-  for (let y = 0; y < SIZE; y++) {
-    rgba.copy(raw, y * (SIZE * 4 + 1) + 1, y * SIZE * 4, (y + 1) * SIZE * 4);
+  const raw = Buffer.alloc((size * 4 + 1) * size);
+  for (let y = 0; y < size; y++) {
+    rgba.copy(raw, y * (size * 4 + 1) + 1, y * size * 4, (y + 1) * size * 4);
   }
   return Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
@@ -106,10 +118,20 @@ function encodePng(rgba) {
   ]);
 }
 
-const png = encodePng(render());
 const root = path.join(__dirname, '..');
-for (const target of [path.join(root, 'build', 'icon.png'), path.join(root, 'src', 'renderer', 'assets', 'icon.png')]) {
+const assets = path.join(root, 'src', 'renderer', 'assets');
+const outputs = [
+  [path.join(root, 'build', 'icon.png'), 256, (x, y) => logo(x, y)],
+  [path.join(assets, 'icon.png'), 256, (x, y) => logo(x, y)],
+  [path.join(assets, 'tray.png'), 16, (x, y) => logo(x, y)],
+  [path.join(assets, 'tray@2x.png'), 32, (x, y) => logo(x, y)],
+  [path.join(assets, 'tray-live.png'), 16, (x, y) => logo(x, y, { live: true })],
+  [path.join(assets, 'tray-live@2x.png'), 32, (x, y) => logo(x, y, { live: true })],
+  [path.join(assets, 'live-badge.png'), 16, badge],
+  [path.join(assets, 'live-badge@2x.png'), 32, badge],
+];
+for (const [target, size, draw] of outputs) {
   fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.writeFileSync(target, png);
-  console.log(`Ícone gerado: ${path.relative(root, target)}`);
+  fs.writeFileSync(target, encodePng(size, render(size, draw)));
+  console.log(`Ícone gerado: ${path.relative(root, target)} (${size}px)`);
 }

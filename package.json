@@ -1,7 +1,7 @@
 {
   "name": "telao",
   "productName": "Telao",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "description": "Compartilhamento de tela P2P com som, escolha de tela, resolução, FPS e bitrate.",
   "author": "Telao",
@@ -30,6 +30,7 @@
     "files": [
       "src/**/*",
       "server/signaling.js",
+      "server/invite-page.js",
       "package.json"
     ],
     "directories": {
@@ -62,6 +63,7 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
+      "include": "build/installer.nsh",
       "artifactName": "Telao-Setup-${version}.${ext}"
     },
     "portable": {

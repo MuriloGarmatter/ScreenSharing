@@ -29,6 +29,75 @@ export const CODECS = [
 
 export const DEFAULT_SHARE_SETTINGS = { resolution: '1080p', fps: 30, bitrate: 0, optimize: 'motion', codec: 'auto' };
 
+// Predefinições: um clique em vez de cinco menus.
+export const QUALITY_PRESETS = [
+  { id: 'game', emoji: '🎮', label: 'Jogo', settings: { resolution: '1080p', fps: 60, bitrate: 0, optimize: 'motion', codec: 'auto' } },
+  { id: 'movie', emoji: '🎬', label: 'Filme', settings: { resolution: '1080p', fps: 30, bitrate: 0, optimize: 'motion', codec: 'auto' } },
+  { id: 'text', emoji: '💻', label: 'Texto', settings: { resolution: 'native', fps: 15, bitrate: 0, optimize: 'detail', codec: 'auto' } },
+  { id: 'slow', emoji: '🐢', label: 'Internet fraca', settings: { resolution: '720p', fps: 30, bitrate: 3, optimize: 'motion', codec: 'auto' } },
+];
+
+/** Id da predefinição que corresponde aos ajustes, ou null ("personalizado"). */
+export function matchPreset(settings) {
+  const keys = ['resolution', 'fps', 'bitrate', 'optimize', 'codec'];
+  const found = QUALITY_PRESETS.find((p) => keys.every((k) => String(p.settings[k]) === String(settings[k])));
+  return found ? found.id : null;
+}
+
+/**
+ * Descobre se a placa de vídeo comprime H.264 para WebRTC (codificação por
+ * hardware: quase não pesa no processador). Na dúvida, responde false.
+ */
+export async function detectHardwareH264() {
+  try {
+    if (!navigator.mediaCapabilities?.encodingInfo) return false;
+    const info = await navigator.mediaCapabilities.encodingInfo({
+      type: 'webrtc',
+      video: { contentType: 'video/H264', width: 1920, height: 1080, bitrate: 6_000_000, framerate: 30 },
+    });
+    return Boolean(info.supported && info.powerEfficient);
+  } catch {
+    return false;
+  }
+}
+
+/** "Automático" vira H.264 quando a placa de vídeo dá conta; senão fica com o padrão. */
+export function resolveCodec(codec, hardwareH264) {
+  return codec === 'auto' && hardwareH264 ? 'H264' : codec;
+}
+
+const RESOLUTION_STEPS = ['480p', '720p', '1080p', '1440p', 'native'];
+
+/**
+ * Sugere ajustes mais leves quando a transmissão está limitada pela internet
+ * ('bandwidth') ou pelo processador ('cpu'). Devolve { settings, text } ou null.
+ */
+export function suggestLowerSettings(settings, reason, { hardwareH264 = false } = {}) {
+  const next = { ...settings };
+  if (reason === 'cpu' && hardwareH264 && resolveCodec(settings.codec, hardwareH264) !== 'H264') {
+    next.codec = 'H264';
+    return { settings: next, text: 'Usar a placa de vídeo (H.264)' };
+  }
+  if (next.fps > 30) {
+    next.fps = 30;
+    return { settings: next, text: 'Baixar para 30 quadros/s' };
+  }
+  const step = RESOLUTION_STEPS.indexOf(next.resolution);
+  if (step > 1) {
+    next.resolution = RESOLUTION_STEPS[Math.min(step - 1, 2)]; // nativa/1440p → 1080p, 1080p → 720p
+    return { settings: next, text: `Baixar para ${findResolution(next.resolution).id}` };
+  }
+  if (reason === 'bandwidth' && (next.bitrate === 0 || next.bitrate > 2)) {
+    next.bitrate = 2;
+    return { settings: next, text: 'Limitar a 2 Mb/s' };
+  }
+  if (next.fps > 15) {
+    next.fps = 15;
+    return { settings: next, text: 'Baixar para 15 quadros/s' };
+  }
+  return null;
+}
+
 // Som do computador: estéreo, sem filtros de voz (que estragam música e jogos).
 export const AUDIO_CONSTRAINTS = {
   echoCancellation: false,

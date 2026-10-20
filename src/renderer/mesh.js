@@ -7,6 +7,11 @@ import { AUDIO_BITRATE, mungeRemoteSdp, pickCodec, startBitrateKbps, targetBitra
 
 const CONNECT_TIMEOUT_MS = 10_000;
 const RECONNECT_DELAYS_MS = [1000, 2000, 4000, 8000, 15000];
+const ICE_RESTART_DELAYS_MS = [8000, 15000, 30000]; // conexão P2P que não sobe (o lado "polite" espera o dobro)
+const REACTION_WINDOW_MS = 2000;
+const REACTION_LIMIT = 8; // por pessoa, a cada 2 s
+
+export const REACTIONS = ['😂', '🔥', '👏', '😮', '❤️', '👍'];
 
 export class Mesh extends EventTarget {
   #ws = null;
@@ -55,7 +60,33 @@ export class Mesh extends EventTarget {
     };
     videoTrack.contentHint = settings.optimize === 'detail' ? 'detail' : 'motion';
     for (const peer of this.peers.values()) this.#attachShare(peer);
-    this.setState({ sharing: true, audio: !!this.share.audioTrack, label: info?.label || '' });
+    this.setState({ sharing: true, paused: false, audio: !!this.share.audioTrack, label: info?.label || '' });
+  }
+
+  /**
+   * Pausa sem renegociar: faixa desligada = quadros pretos e silêncio para quem
+   * assiste; o estado "pausado" avisa os outros para mostrarem um aviso.
+   */
+  setPaused(paused) {
+    const share = this.share;
+    if (!share) return;
+    share.videoTrack.enabled = !paused;
+    if (share.audioTrack) share.audioTrack.enabled = !paused;
+    this.setState({ ...this.state, paused });
+  }
+
+  /** Envia uma reação a todos (o alvo é quem está transmitindo). */
+  sendReaction(target, emoji) {
+    if (!REACTIONS.includes(emoji)) return false;
+    const message = JSON.stringify({ type: 'reaction', target, emoji });
+    let sent = false;
+    for (const peer of this.peers.values()) {
+      if (peer.channel?.readyState === 'open') {
+        peer.channel.send(message);
+        sent = true;
+      }
+    }
+    return sent;
   }
 
   async updateShareSettings(settings) {
@@ -245,10 +276,16 @@ export class Mesh extends EventTarget {
     this.peers.set(id, peer);
 
     // Canal de dados negociado dos dois lados: estabelece a conexão P2P logo
-    // ao entrar, então a transmissão começa rápido quando alguém compartilhar.
-    pc.createDataChannel('telao', { negotiated: true, id: 0 });
+    // ao entrar (a transmissão começa rápido) e leva as reações.
+    peer.channel = pc.createDataChannel('telao', { negotiated: true, id: 0 });
+    peer.channel.onmessage = (event) => this.#onPeerMessage(peer, event.data);
 
     pc.onnegotiationneeded = async () => {
+      // Na primeira negociação só o lado "impolite" oferece. Se os dois oferecessem
+      // juntos, o "polite" teria de desfazer a dele (rollback), e o Chromium às vezes
+      // para de juntar candidatos ICE depois disso: a conexão ficava em "new" para
+      // sempre. Depois da resposta, se ainda faltar algo, o evento volta a disparar.
+      if (peer.polite && !pc.remoteDescription) return;
       try {
         peer.makingOffer = true;
         await pc.setLocalDescription();
@@ -269,7 +306,13 @@ export class Mesh extends EventTarget {
       this.#emit('remote-track', { peer, track });
     };
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'failed') pc.restartIce();
+      if (pc.connectionState === 'connected') {
+        clearTimeout(peer.watchdog);
+      } else if (pc.connectionState === 'failed') {
+        // Só um lado refaz o ICE na hora, para as duas ofertas não se cruzarem.
+        if (!peer.polite) pc.restartIce();
+        this.#watchConnection(peer, 0);
+      }
       this.#emit('connection', { peer });
     };
     pc.onsignalingstatechange = () => {
@@ -278,13 +321,45 @@ export class Mesh extends EventTarget {
     };
 
     if (this.share) this.#attachShare(peer);
+    this.#watchConnection(peer, 0);
     this.#emit('peer-joined', { peer, silent });
+  }
+
+  /**
+   * Se a conexão com alguém não sobe, refaz o ICE (novos candidatos dos dois
+   * lados). O lado "impolite" tenta primeiro; o "polite" espera o dobro, só para
+   * o caso de o outro não conseguir, e assim as ofertas não se cruzam.
+   */
+  #watchConnection(peer, attempt) {
+    clearTimeout(peer.watchdog);
+    if (attempt >= ICE_RESTART_DELAYS_MS.length) return;
+    const delay = ICE_RESTART_DELAYS_MS[attempt] * (peer.polite ? 2 : 1);
+    peer.watchdog = setTimeout(() => {
+      const { pc } = peer;
+      if (this.#closed || this.peers.get(peer.id) !== peer || pc.connectionState === 'connected') return;
+      pc.restartIce();
+      this.#watchConnection(peer, attempt + 1);
+    }, delay);
+  }
+
+  #onPeerMessage(peer, data) {
+    if (typeof data !== 'string' || data.length > 1000) return;
+    let msg;
+    try { msg = JSON.parse(data); } catch { return; }
+    if (msg?.type !== 'reaction' || !REACTIONS.includes(msg.emoji)) return;
+    if (typeof msg.target !== 'string' || msg.target.length > 64) return;
+    const now = Date.now();
+    peer.reactionTimes = (peer.reactionTimes || []).filter((t) => now - t < REACTION_WINDOW_MS);
+    if (peer.reactionTimes.length >= REACTION_LIMIT) return;
+    peer.reactionTimes.push(now);
+    this.#emit('reaction', { from: peer, target: msg.target, emoji: msg.emoji });
   }
 
   #removePeer(id, silent) {
     const peer = this.peers.get(id);
     if (!peer) return;
     this.peers.delete(id);
+    clearTimeout(peer.watchdog);
     peer.pc.close();
     for (const track of peer.remoteStream.getTracks()) track.stop();
     this.#emit('peer-left', { peer, silent });

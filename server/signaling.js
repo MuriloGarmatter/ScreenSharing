@@ -29,6 +29,7 @@ function sanitizeState(state) {
   if (!state || typeof state !== 'object') return { sharing: false };
   return {
     sharing: state.sharing === true,
+    paused: state.paused === true,
     audio: state.audio === true,
     label: cleanText(state.label, 80),
   };

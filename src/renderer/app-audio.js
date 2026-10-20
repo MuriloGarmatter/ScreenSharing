@@ -30,7 +30,7 @@ export class AppAudioCapture extends EventTarget {
   }
 
   /** Inicia a captura e devolve a faixa de áudio (estéreo, 48 kHz). */
-  async start({ mode, sourceId, exclude }) {
+  async start({ mode, sourceId, exclude, include }) {
     active.add(this);
     const ctx = new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' });
     this.ctx = ctx;
@@ -38,7 +38,7 @@ export class AppAudioCapture extends EventTarget {
     this.output = ctx.createMediaStreamDestination();
     this.output.channelCount = 2;
     await ctx.resume();
-    await this.api.startAppAudio({ session: this.session, mode, sourceId, exclude });
+    await this.api.startAppAudio({ session: this.session, mode, sourceId, exclude, include });
     const track = this.output.stream.getAudioTracks()[0];
     track.contentHint = 'music';
     return track;

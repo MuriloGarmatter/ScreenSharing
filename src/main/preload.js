@@ -5,7 +5,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 // API mínima exposta à interface (a página não tem acesso ao Node).
 contextBridge.exposeInMainWorld('telao', {
   appInfo: () => ipcRenderer.invoke('app:info'),
-  listSources: () => ipcRenderer.invoke('sources:list'),
+  listSources: (options) => ipcRenderer.invoke('sources:list', { thumbnails: options?.thumbnails !== false }),
   selectSource: (sourceId, withAudio) => ipcRenderer.invoke('sources:select', sourceId, withAudio),
   startServer: (options) => ipcRenderer.invoke('server:start', options),
   stopServer: () => ipcRenderer.invoke('server:stop'),
@@ -15,6 +15,14 @@ contextBridge.exposeInMainWorld('telao', {
   onTunnelClosed: (callback) => ipcRenderer.on('tunnel:closed', () => callback()),
   startAppAudio: (options) => ipcRenderer.invoke('appaudio:start', options),
   stopAppAudio: (session) => ipcRenderer.invoke('appaudio:stop', session),
+  listAudioApps: () => ipcRenderer.invoke('appaudio:list'),
+  takePendingInvite: () => ipcRenderer.invoke('invite:pending'),
+  onInvite: (callback) => ipcRenderer.on('invite:open', (_event, link) => callback(link)),
+  readClipboard: () => ipcRenderer.invoke('clipboard:read'),
+  setStatus: (status) => ipcRenderer.invoke('status:set', status),
+  onCommand: (callback) => ipcRenderer.on('command', (_event, command) => callback(command)),
+  attention: (options) => ipcRenderer.invoke('attention', options),
+  showWindow: () => ipcRenderer.invoke('window:show'),
   onAppAudioData: (callback) => ipcRenderer.on('appaudio:data', (_event, session, id, payload) => callback(session, id, payload)),
   onAppAudioEvent: (callback) => ipcRenderer.on('appaudio:event', (_event, session, data) => callback(session, data)),
   setAppearance: (options) => ipcRenderer.invoke('appearance:set', options),

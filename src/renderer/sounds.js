@@ -1,0 +1,35 @@
+// Sons curtos de aviso, gerados na hora (sem arquivos de áudio).
+// O som do próprio Telão não entra na transmissão: o app é excluído da captura.
+
+const TONES = {
+  start: [[660, 0], [880, 0.09]], // começou a transmitir (sobe)
+  stop: [[880, 0], [587, 0.09]], // parou (desce)
+  pause: [[740, 0], [740, 0.12]], // pausou / retomou
+  stream: [[523, 0], [659, 0.08], [784, 0.16]], // alguém começou a transmitir
+  join: [[587, 0], [784, 0.08]], // alguém entrou
+};
+
+let context = null;
+
+export function playSound(kind) {
+  const notes = TONES[kind];
+  if (!notes) return;
+  try {
+    context ||= new AudioContext();
+    const now = context.currentTime + 0.01;
+    for (const [frequency, offset] of notes) {
+      const osc = context.createOscillator();
+      const gain = context.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = frequency;
+      gain.gain.setValueAtTime(0.0001, now + offset);
+      gain.gain.exponentialRampToValueAtTime(0.07, now + offset + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.16);
+      osc.connect(gain).connect(context.destination);
+      osc.start(now + offset);
+      osc.stop(now + offset + 0.18);
+    }
+  } catch {
+    // Sem saída de áudio: segue sem som.
+  }
+}

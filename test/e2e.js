@@ -159,6 +159,7 @@ async function step(name, fn) {
     await openAnimationWindow(a.app);
 
     await step('Alice escolhe 720p / 30 fps, a tela principal e exclui o FakeDiscord', async () => {
+      await a.page.click('#quality-advanced summary'); // abre os ajustes finos
       await a.page.selectOption('#q-resolution', '720p');
       await a.page.selectOption('#q-fps', '30');
       await a.page.selectOption('#q-codec', 'auto');

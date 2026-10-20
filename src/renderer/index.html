@@ -22,32 +22,50 @@
         <button type="button" class="icon-btn" data-open-appearance title="Aparência: tema e cores" aria-label="Aparência: tema e cores" data-icon="palette"></button>
       </header>
 
+      <div id="clipboard-invite" class="clipboard-invite" role="status" hidden>
+        <span class="clipboard-icon" data-icon="link"></span>
+        <div class="clipboard-text">
+          <strong>Você copiou um convite</strong>
+          <span id="clipboard-invite-room"></span>
+        </div>
+        <button type="button" id="clipboard-use" class="btn small primary">Entrar</button>
+        <button type="button" id="clipboard-dismiss" class="icon-btn small" title="Ignorar" aria-label="Ignorar este convite" data-icon="x"></button>
+      </div>
+
+      <div class="mode-choice" role="radiogroup" aria-label="O que você quer fazer?">
+        <input type="radio" name="mode" id="mode-join" value="join" checked>
+        <label for="mode-join">
+          <span class="choice-icon" data-icon="link"></span>
+          <strong>Entrar com convite</strong>
+          <small>Alguém criou a sala e te mandou o link</small>
+        </label>
+        <input type="radio" name="mode" id="mode-host" value="host">
+        <label for="mode-host">
+          <span class="choice-icon" data-icon="plus"></span>
+          <strong>Criar sala</strong>
+          <small>Você hospeda e convida os amigos</small>
+        </label>
+      </div>
+
       <label class="field">
         <span>Seu nome</span>
         <input id="name" maxlength="32" autocomplete="off" spellcheck="false">
       </label>
 
-      <div class="field">
-        <label for="room">Sala</label>
-        <span class="input-row">
-          <input id="room" maxlength="64" autocomplete="off" spellcheck="false">
-          <button type="button" id="room-random" class="icon-btn" title="Gerar um nome difícil de adivinhar" data-icon="shuffle"></button>
-        </span>
-      </div>
-
-      <div class="segmented" role="radiogroup" aria-label="Servidor">
-        <input type="radio" name="mode" id="mode-join" value="join" checked>
-        <label for="mode-join">Entrar em um servidor</label>
-        <input type="radio" name="mode" id="mode-host" value="host">
-        <label for="mode-host">Hospedar neste PC</label>
-      </div>
-
       <div id="join-fields" class="mode-fields">
         <label class="field">
-          <span>Endereço do servidor</span>
-          <input id="server-url" placeholder="cole o convite: wss://xxxx.trycloudflare.com/nome-da-sala" autocomplete="off" spellcheck="false">
+          <span>Convite <em>(o link que você recebeu)</em></span>
+          <input id="server-url" placeholder="https://xxxx.trycloudflare.com/nome-da-sala" autocomplete="off" spellcheck="false">
         </label>
-        <label class="field">
+        <!-- O campo Sala é colocado aqui (ou em "Criar sala") pelo app.js. -->
+        <div class="field" id="room-field">
+          <label for="room" id="room-label">Sala</label>
+          <span class="input-row">
+            <input id="room" maxlength="64" autocomplete="off" spellcheck="false">
+            <button type="button" id="room-random" class="icon-btn" title="Gerar um nome difícil de adivinhar" aria-label="Gerar um nome de sala" data-icon="shuffle"></button>
+          </span>
+        </div>
+        <label class="field" id="server-password-field">
           <span>Senha do servidor <em>(se houver)</em></span>
           <input id="server-password" type="password" autocomplete="off">
         </label>
@@ -100,6 +118,7 @@
         <span id="server-status" class="pill ok">conectado</span>
       </div>
       <div class="topbar-right">
+        <button id="sounds-btn" class="icon-btn" aria-pressed="true"></button>
         <button class="icon-btn" data-open-appearance title="Aparência: tema e cores" aria-label="Aparência: tema e cores" data-icon="palette"></button>
         <button id="share-btn" class="btn primary"></button>
         <button id="leave-btn" class="btn ghost"><span data-icon="logout"></span>Sair</button>
@@ -120,7 +139,7 @@
         <h3>Convidar amigos</h3>
         <div id="invite-lan" class="invite-group"></div>
         <div id="invite-internet" class="invite-group"></div>
-        <p class="hint">Copie e mande um convite: ele já inclui o nome da sala (<strong id="invite-room"></strong>). Se você pôs senha, mande a senha também.</p>
+        <p class="hint">Mande o link: quem clicar nele abre o Telão já na sala <strong id="invite-room"></strong>. Se você pôs senha, mande a senha também.</p>
       </section>
 
       <section class="panel">
@@ -131,25 +150,46 @@
       <section class="panel" id="share-panel">
         <h3>Sua transmissão</h3>
         <div id="share-live" class="share-live" hidden>
-          <video id="local-preview" muted playsinline autoplay></video>
+          <div class="preview-wrap">
+            <video id="local-preview" muted playsinline autoplay></video>
+            <div id="preview-paused" class="paused-overlay" hidden><span data-icon="pause"></span>Pausada: os outros veem uma tela preta</div>
+            <div id="preview-reactions" class="reactions-layer" aria-live="polite"></div>
+          </div>
           <div class="share-live-info"><span class="live-dot"></span><span id="share-source"></span></div>
           <div id="share-audio-info" class="share-audio">
             <div class="meter" title="Nível do som que está sendo transmitido"><span id="share-meter"></span></div>
             <p id="share-audio-text" class="hint"></p>
           </div>
           <div class="share-actions">
-            <button id="switch-btn" class="btn small"><span data-icon="swap"></span>Trocar tela</button>
+            <button id="pause-btn" class="btn small"></button>
+            <button id="switch-btn" class="btn small" title="Trocar a tela ou janela transmitida"><span data-icon="swap"></span>Trocar tela</button>
             <button id="stop-btn" class="btn small danger"><span data-icon="stop"></span>Parar</button>
           </div>
         </div>
-        <div class="quality">
-          <label class="field"><span>Resolução</span><select id="q-resolution"></select></label>
-          <label class="field"><span>Quadros/s (FPS)</span><select id="q-fps"></select></label>
-          <label class="field"><span>Bitrate máximo</span><select id="q-bitrate"></select></label>
-          <label class="field" title="Movimento: jogos e vídeos (prioriza a fluidez). Nitidez: texto e código (prioriza letras legíveis)."><span>Otimizar para</span><select id="q-optimize"></select></label>
-          <label class="field wide"><span>Codec de vídeo</span><select id="q-codec"></select></label>
+        <div id="suggestion" class="suggestion" role="status" hidden>
+          <p id="suggestion-text"></p>
+          <div class="suggestion-actions">
+            <button id="suggestion-apply" class="btn small primary"></button>
+            <button id="suggestion-dismiss" class="btn small ghost">Agora não</button>
+          </div>
         </div>
+        <div id="presets" class="presets" role="group" aria-label="Qualidade da transmissão"></div>
+        <details class="advanced quality-advanced" id="quality-advanced">
+          <summary>Ajustes finos <span id="preset-custom" class="pill" hidden>personalizado</span></summary>
+          <div class="quality">
+            <label class="field"><span>Resolução</span><select id="q-resolution"></select></label>
+            <label class="field"><span>Quadros/s (FPS)</span><select id="q-fps"></select></label>
+            <label class="field"><span>Bitrate máximo</span><select id="q-bitrate"></select></label>
+            <label class="field" title="Movimento: jogos e vídeos (prioriza a fluidez). Nitidez: texto e código (prioriza letras legíveis)."><span>Otimizar para</span><select id="q-optimize"></select></label>
+            <label class="field wide"><span>Codec de vídeo</span><select id="q-codec"></select></label>
+          </div>
+        </details>
         <p id="bitrate-hint" class="hint"></p>
+        <p class="hint shortcuts-hint">
+          Atalhos, que funcionam até com o jogo aberto:
+          <span class="shortcut"><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>T</kbd> começa/para</span> ·
+          <span class="shortcut"><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>P</kbd> pausa</span>
+        </p>
         <label class="check" id="anti-echo-row">
           <input type="checkbox" id="anti-echo" checked>
           <span>Silenciar o som dos outros enquanto eu transmito com som <em>(evita eco)</em></span>
@@ -163,12 +203,12 @@
   <dialog id="picker" class="picker">
     <header class="picker-head">
       <h2>O que você quer transmitir?</h2>
-      <button id="picker-close" class="icon-btn" title="Fechar" data-icon="x"></button>
+      <button id="picker-close" class="icon-btn" title="Fechar" aria-label="Fechar" data-icon="x"></button>
     </header>
     <div class="picker-tabs" role="tablist">
       <button class="tab active" data-tab="screen" role="tab">Telas inteiras</button>
       <button class="tab" data-tab="window" role="tab">Janelas</button>
-      <button id="picker-refresh" class="btn small ghost"><span data-icon="refresh"></span>Atualizar</button>
+      <button id="picker-refresh" class="btn small ghost" aria-label="Atualizar a lista de telas"><span data-icon="refresh"></span>Atualizar</button>
     </div>
     <div id="source-grid" class="source-grid"></div>
     <footer class="picker-foot">
@@ -179,6 +219,14 @@
         </label>
         <select id="audio-mode" aria-label="De onde vem o som"></select>
         <button id="exclude-toggle" class="btn small ghost" type="button"></button>
+      </div>
+      <div id="pick-apps" class="pick-apps" hidden>
+        <div class="pick-head">
+          <span class="field-label">Apps que vão no som</span>
+          <button type="button" id="pick-refresh" class="btn small ghost" aria-label="Atualizar a lista de apps"><span data-icon="refresh"></span>Atualizar</button>
+        </div>
+        <div id="pick-list" class="pick-list"></div>
+        <p class="hint">Aparecem os apps que estão usando o som agora (ou há pouco). Os que você marcar ficam salvos para as próximas vezes.</p>
       </div>
       <div id="exclude-editor" class="exclude-editor" hidden>
         <label class="field">

@@ -5,12 +5,15 @@ const fs = require('node:fs');
 const os = require('node:os');
 const http = require('node:http');
 const {
-  app, BrowserWindow, Menu, clipboard, desktopCapturer, ipcMain, nativeTheme, powerSaveBlocker, screen, session, shell,
+  app, BrowserWindow, Menu, Notification, Tray, clipboard, desktopCapturer, globalShortcut, ipcMain,
+  nativeImage, nativeTheme, powerSaveBlocker, screen, session, shell,
 } = require('electron');
 const { attachSignaling, turnServers, DEFAULT_ICE_SERVERS } = require('../../server/signaling');
+const { handleHttpRequest } = require('../../server/invite-page');
 const { findCloudflared, startTunnel, downloadCloudflared } = require('./tunnel');
 const { AppAudio, DEFAULT_EXCLUDED_APPS } = require('./app-audio');
 const { normalizeAppearance } = require('./appearance');
+const { PROTOCOL, findDeepLink } = require('./deeplink');
 
 // "--profile=nome" usa uma pasta de dados separada, permitindo abrir duas
 // instâncias no mesmo PC (útil para testar).
@@ -20,7 +23,17 @@ if (profileArg) {
   if (profile) app.setPath('userData', path.join(app.getPath('appData'), `${app.getName()}-${profile}`));
 }
 
-const ICON_PATH = path.join(__dirname, '..', 'renderer', 'assets', 'icon.png');
+const ASSETS = path.join(__dirname, '..', 'renderer', 'assets');
+const ICON_PATH = path.join(ASSETS, 'icon.png');
+
+// Notificações do Windows precisam do id do app (o mesmo do instalador).
+if (process.platform === 'win32') app.setAppUserModelId('br.telao.app');
+
+// Uma janela por perfil: abrir de novo (ou clicar num convite telao://) traz a
+// janela que já existe e repassa o convite para ela.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) app.quit();
+let pendingDeepLink = findDeepLink(process.argv);
 
 let mainWindow = null;
 let pendingCapture = { sourceId: null, audio: false };
@@ -109,8 +122,147 @@ function createWindow() {
       event.preventDefault();
     }
   });
+  mainWindow.on('focus', () => mainWindow.flashFrame(false));
   mainWindow.on('closed', () => { mainWindow = null; });
 }
+
+function showWindow() {
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+// ---------- Convites clicáveis (telao://) ----------
+
+function registerProtocol() {
+  // Em desenvolvimento não registra, para não tomar o link do app instalado.
+  if (!app.isPackaged) return;
+  // Com o Telão aberto, o link aponta para esta cópia em execução: o clique cai
+  // direto no requestSingleInstanceLock. (Na portátil, apontar para o .exe
+  // portátil faria o lançador extrair de novo por cima da cópia em uso.)
+  app.setAsDefaultProtocolClient(PROTOCOL);
+}
+
+// Ao sair, a portátil devolve o link ao .exe portátil, que extrai e abre o Telão.
+function restoreProtocolForPortable() {
+  const portable = process.env.PORTABLE_EXECUTABLE_FILE;
+  if (app.isPackaged && portable) app.setAsDefaultProtocolClient(PROTOCOL, portable, []);
+}
+
+function deliverDeepLink(link) {
+  if (!link) return;
+  if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isLoading()) {
+    mainWindow.webContents.send('invite:open', link);
+  } else {
+    pendingDeepLink = link;
+  }
+}
+
+app.on('second-instance', (_event, argv) => {
+  showWindow();
+  deliverDeepLink(findDeepLink(argv));
+});
+
+ipcMain.handle('window:show', () => showWindow());
+
+ipcMain.handle('invite:pending', () => {
+  const link = pendingDeepLink;
+  pendingDeepLink = null;
+  return link;
+});
+
+// ---------- Bandeja, selo "ao vivo" na barra de tarefas e atalhos globais ----------
+
+let tray = null;
+let liveStatus = { inRoom: false, sharing: false, paused: false };
+// Atalhos que valem até com o jogo em primeiro plano (só enquanto está numa sala).
+const SHORTCUTS = { 'Control+Alt+P': 'pause-toggle', 'Control+Alt+T': 'share-toggle' };
+let shortcutsOn = false;
+
+async function sendCommand(command) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  // Começar a transmitir chama o getDisplayMedia, que o Chromium só aceita logo
+  // depois de um gesto do usuário, e a tecla do atalho global não chega à página.
+  // executeJavaScript com userGesture=true marca esse gesto (vale uns 5 s).
+  if (command === 'share-toggle') await mainWindow.webContents.executeJavaScript('0', true).catch(() => {});
+  if (!mainWindow.isDestroyed()) mainWindow.webContents.send('command', command);
+}
+
+function updateTray() {
+  const { sharing, paused } = liveStatus;
+  if (tray) {
+    tray.setImage(path.join(ASSETS, sharing ? 'tray-live.png' : 'tray.png'));
+    tray.setToolTip(sharing ? (paused ? 'Telão: transmissão pausada' : 'Telão: AO VIVO') : 'Telão');
+    const items = [{ label: 'Abrir o Telão', click: showWindow }];
+    if (sharing) {
+      items.push(
+        { type: 'separator' },
+        { label: paused ? 'Retomar transmissão' : 'Pausar transmissão', accelerator: 'Ctrl+Alt+P', click: () => sendCommand('pause-toggle') },
+        { label: 'Parar transmissão', click: () => sendCommand('share-stop') },
+      );
+    }
+    items.push({ type: 'separator' }, { label: 'Sair do Telão', click: () => app.quit() });
+    tray.setContextMenu(Menu.buildFromTemplate(items));
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    const badge = sharing ? nativeImage.createFromPath(path.join(ASSETS, 'live-badge.png')) : null;
+    mainWindow.setOverlayIcon(badge, sharing ? 'Ao vivo' : '');
+  }
+}
+
+function createTray() {
+  tray = new Tray(path.join(ASSETS, 'tray.png'));
+  tray.on('click', showWindow);
+  updateTray();
+}
+
+/** Liga/desliga os atalhos globais; devolve os que outro programa já usa. */
+function setShortcuts(on) {
+  if (on === shortcutsOn) return [];
+  shortcutsOn = on;
+  if (!on) {
+    for (const key of Object.keys(SHORTCUTS)) globalShortcut.unregister(key);
+    return [];
+  }
+  const taken = [];
+  for (const [key, command] of Object.entries(SHORTCUTS)) {
+    if (!globalShortcut.register(key, () => sendCommand(command))) taken.push(key.replace('Control', 'Ctrl'));
+  }
+  return taken;
+}
+
+ipcMain.handle('status:set', (_event, status = {}) => {
+  liveStatus = { inRoom: status.inRoom === true, sharing: status.sharing === true, paused: status.paused === true };
+  updateTray();
+  return setShortcuts(liveStatus.inRoom);
+});
+
+// Chama a atenção quando a janela não está em foco (alguém começou a transmitir).
+// As notificações ficam guardadas até sumirem: se o coletor de lixo levasse o
+// objeto, o clique nela deixaria de trazer a janela.
+const NOTIFY_MIN_INTERVAL_MS = 8000;
+const liveNotifications = new Set();
+let lastNotificationAt = 0;
+
+ipcMain.handle('attention', (_event, options = {}) => {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isFocused()) return;
+  mainWindow.flashFrame(true);
+  if (!Notification.isSupported() || Date.now() - lastNotificationAt < NOTIFY_MIN_INTERVAL_MS) return;
+  lastNotificationAt = Date.now();
+  const notification = new Notification({
+    title: String(options.title || 'Telão').slice(0, 80),
+    body: String(options.body || '').slice(0, 200),
+    icon: ICON_PATH,
+    silent: true,
+  });
+  const forget = () => liveNotifications.delete(notification);
+  notification.on('click', () => { forget(); showWindow(); });
+  notification.on('close', forget);
+  notification.on('failed', forget);
+  liveNotifications.add(notification);
+  notification.show();
+});
 
 // ---------- Captura de tela ----------
 
@@ -129,11 +281,13 @@ function describeScreens(sources) {
   });
 }
 
-ipcMain.handle('sources:list', async () => {
+ipcMain.handle('sources:list', async (_event, options) => {
+  // Sem miniaturas a lista sai bem mais rápido (o atalho Ctrl+Alt+T usa assim).
+  const thumbnails = options?.thumbnails !== false;
   const sources = await desktopCapturer.getSources({
     types: ['screen', 'window'],
-    thumbnailSize: { width: 400, height: 225 },
-    fetchWindowIcons: true,
+    thumbnailSize: thumbnails ? { width: 400, height: 225 } : { width: 0, height: 0 },
+    fetchWindowIcons: thumbnails,
   });
   const ownWindowId = mainWindow ? mainWindow.getMediaSourceId() : null;
   const screens = sources.filter((s) => s.id.startsWith('screen:'));
@@ -143,7 +297,7 @@ ipcMain.handle('sources:list', async () => {
     type: 'screen',
     name: screenInfo[i].name,
     detail: screenInfo[i].detail,
-    thumbnail: s.thumbnail.toDataURL(),
+    thumbnail: s.thumbnail.isEmpty() ? null : s.thumbnail.toDataURL(),
   }));
   for (const s of sources) {
     if (!s.id.startsWith('window:') || s.id === ownWindowId || !s.name) continue;
@@ -209,10 +363,8 @@ ipcMain.handle('server:start', async (_event, options = {}) => {
   const port = Number(options.port);
   if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('Porta inválida (use entre 1024 e 65535).');
   const iceServers = [...DEFAULT_ICE_SERVERS, ...turnServers(options.turn)];
-  const httpServer = http.createServer((_req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end('Telão: servidor de sinalização ativo.\n');
-  });
+  // HTTP: a página do convite (quem abre o link no navegador) e a verificação de saúde.
+  const httpServer = http.createServer(handleHttpRequest);
   const signaling = attachSignaling(httpServer, {
     password: typeof options.password === 'string' ? options.password : '',
     getIceServers: async () => iceServers,
@@ -272,13 +424,21 @@ ipcMain.handle('app:info', () => ({
 
 ipcMain.handle('appaudio:start', (_event, options = {}) => appAudio.start({
   session: String(options.session || ''),
-  mode: options.mode === 'app' ? 'app' : 'all',
+  mode: ['app', 'pick'].includes(options.mode) ? options.mode : 'all',
   sourceId: options.sourceId,
   exclude: options.exclude,
+  include: options.include,
 }));
 ipcMain.handle('appaudio:stop', (_event, session) => appAudio.stop(String(session)));
+ipcMain.handle('appaudio:list', () => appAudio.listApps());
 
 ipcMain.handle('clipboard:write', (_event, text) => clipboard.writeText(String(text)));
+// Só o texto, e curto: a interface procura nele um convite copiado.
+// (Conforme a versão do Electron, readText devolve o texto ou uma Promise.)
+ipcMain.handle('clipboard:read', async () => {
+  const text = await clipboard.readText();
+  return typeof text === 'string' ? text.slice(0, 500) : '';
+});
 
 ipcMain.handle('power:keep-awake', (_event, on) => {
   if (on && powerBlockerId === null) powerBlockerId = powerSaveBlocker.start('prevent-display-sleep');
@@ -289,14 +449,22 @@ ipcMain.handle('power:keep-awake', (_event, on) => {
 });
 
 app.whenReady().then(() => {
+  if (!gotSingleInstanceLock) return;
   Menu.setApplicationMenu(null);
+  registerProtocol();
   setupDisplayMedia();
   createWindow();
+  createTray();
   app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow(); });
 });
 
 app.on('window-all-closed', () => app.quit());
-app.on('will-quit', () => appAudio.stop());
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
+  appAudio.stop();
+  if (tray) tray.destroy();
+  if (gotSingleInstanceLock) restoreProtocolForPortable();
+});
 
 let quitting = false;
 app.on('before-quit', (event) => {

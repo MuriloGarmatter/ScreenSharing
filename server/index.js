@@ -12,14 +12,13 @@
 
 const http = require('node:http');
 const { attachSignaling, iceServersFromEnv } = require('./signaling');
+const { handleHttpRequest } = require('./invite-page');
 
 const port = Number(process.env.PORT) || 47800;
 const log = (msg) => console.log(`[${new Date().toISOString()}] ${msg}`);
 
-const server = http.createServer((req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-  res.end('Telão: servidor de sinalização ativo.\n');
-});
+// HTTP: página do convite (https://servidor/nome-da-sala) e verificação de saúde.
+const server = http.createServer(handleHttpRequest);
 
 const signaling = attachSignaling(server, {
   password: process.env.SERVER_PASSWORD || '',

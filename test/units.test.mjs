@@ -4,12 +4,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import {
-  mungeRemoteSdp, pickCodec, startBitrateKbps, targetBitrate, videoConstraints,
+  QUALITY_PRESETS, matchPreset, mungeRemoteSdp, pickCodec, resolveCodec, startBitrateKbps,
+  suggestLowerSettings, targetBitrate, videoConstraints,
 } from '../src/renderer/media.js';
-import { inviteAddress, parseServerAddress } from '../src/renderer/address.js';
+import {
+  deepLinkFor, inviteLink, parseDeepLink, parseInviteText, parseServerAddress,
+} from '../src/renderer/address.js';
+import { levelFrom, limitReason, peerSignal } from '../src/renderer/stats.js';
 
 const require = createRequire(import.meta.url);
-const { createFrameParser, normalizeExeName } = require('../src/main/app-audio.js');
+const { createFrameParser, helperArgs, normalizeExeName } = require('../src/main/app-audio.js');
+const { findDeepLink } = require('../src/main/deeplink.js');
+const { handleHttpRequest, inviteFromRequest } = require('../server/invite-page.js');
 
 // theme.js é um script clássico: ao ser carregado, publica globalThis.TelaoTheme.
 await import('../src/renderer/theme.js');
@@ -160,16 +166,154 @@ test('endereço do servidor: formatos aceitos, com e sem a sala no fim', () => {
   assert.equal(parseServerAddress('wss://'), null);
 });
 
-test('convite = endereço + sala, e volta igual ao ser lido', () => {
-  for (const [base, room] of [
-    ['wss://abc-def.trycloudflare.com', 'sala-k3x9q2a'],
-    ['192.168.0.10:47800', 'filme sexta'],
-    ['wss://x.example.com/', 'Ação/Terror'],
+test('convite = link clicável com a sala, e volta igual ao ser lido', () => {
+  for (const [base, room, url] of [
+    ['wss://abc-def.trycloudflare.com', 'sala-k3x9q2a', 'wss://abc-def.trycloudflare.com'],
+    ['192.168.0.10:47800', 'filme sexta', 'ws://192.168.0.10:47800'],
+    ['wss://x.example.com/', 'Ação/Terror', 'wss://x.example.com'],
   ]) {
-    const invite = inviteAddress(base, room);
-    assert.equal(parseServerAddress(invite).room, room, invite);
+    const link = inviteLink(base, room);
+    assert.match(link, /^https?:\/\//, 'o convite é um link http(s), clicável no Discord/WhatsApp');
+    assert.deepEqual(parseServerAddress(link), { url, room }, link);
   }
-  assert.equal(inviteAddress('wss://a.trycloudflare.com', 'sala-1'), 'wss://a.trycloudflare.com/sala-1');
+  assert.equal(inviteLink('wss://a.trycloudflare.com', 'sala-1'), 'https://a.trycloudflare.com/sala-1');
+  assert.equal(inviteLink('192.168.0.10:47800', 'sala-1'), 'http://192.168.0.10:47800/sala-1');
+});
+
+test('link telao:// leva o convite inteiro e só ele', () => {
+  const invite = 'https://abc-def.trycloudflare.com/filme-sexta';
+  const link = deepLinkFor(invite);
+  assert.equal(link, 'telao://entrar/?convite=https%3A%2F%2Fabc-def.trycloudflare.com%2Ffilme-sexta');
+  assert.deepEqual(parseDeepLink(link), { url: 'wss://abc-def.trycloudflare.com', room: 'filme-sexta', invite });
+  assert.deepEqual(parseDeepLink(deepLinkFor('http://192.168.0.10:47800/sala')).url, 'ws://192.168.0.10:47800');
+  assert.equal(parseDeepLink('telao://entrar/?convite=https%3A%2F%2Fsem-sala.com'), null, 'sem sala, não é convite');
+  assert.equal(parseDeepLink('https://abc.com/sala'), null);
+  assert.equal(parseDeepLink('telao://%%%'), null);
+});
+
+test('convite copiado: reconhece links de convite e ignora outros textos', () => {
+  assert.equal(parseInviteText('https://abc-def.trycloudflare.com/filme-sexta').room, 'filme-sexta');
+  assert.equal(parseInviteText('  http://192.168.0.10:47800/sala-1\n').url, 'ws://192.168.0.10:47800');
+  assert.equal(parseInviteText('192.168.0.10:47800/sala-1').room, 'sala-1');
+  assert.equal(parseInviteText(deepLinkFor('https://a.trycloudflare.com/x')).room, 'x');
+  // A mensagem inteira copiada do chat, e o ponto final colado no link.
+  const fromChat = parseInviteText('Entra aí: https://abc-def.trycloudflare.com/sala-k3x9q2a.');
+  assert.equal(fromChat.room, 'sala-k3x9q2a');
+  assert.equal(fromChat.invite, 'https://abc-def.trycloudflare.com/sala-k3x9q2a');
+  assert.equal(parseInviteText('(https://abc-def.trycloudflare.com/filme)').room, 'filme');
+  assert.equal(parseInviteText('vê isso https://youtu.be/abc e entra https://a-b.trycloudflare.com/sala-2').room, 'sala-2');
+  assert.equal(parseInviteText('wss://meu-servidor.com.br/sala').url, 'wss://meu-servidor.com.br');
+  for (const text of [
+    '', 'oi, tudo bem?', 'https://www.youtube.com/', 'https://site.com/a/b/c', 'senha123', 'x'.repeat(400),
+    // Links de um segmento só que não são do Telão (o que mais aparece copiado).
+    'https://www.youtube.com/watch?v=dQw4w9WgXcQ', 'https://youtu.be/dQw4w9WgXcQ', 'https://discord.gg/abc123',
+    'https://www.twitch.tv/gaules', 'https://x.com/fulano', 'https://github.com/fulano',
+    'http://192.168.0.1/login', 'https://abc.trycloudflare.com/sala?x=1', 'https://abc.trycloudflare.com/a/b',
+    'https://abc.trycloudflare.com/', 'https://user:senha@abc.trycloudflare.com/sala',
+  ]) {
+    assert.equal(parseInviteText(text), null, `não é convite: ${text.slice(0, 50)}`);
+  }
+});
+
+test('link telao:// na linha de comando', () => {
+  assert.equal(findDeepLink(['Telao.exe', '--profile=b', 'telao://entrar/?convite=x']), 'telao://entrar/?convite=x');
+  assert.equal(findDeepLink(['Telao.exe', 'https://x.com']), null);
+  assert.equal(findDeepLink(undefined), null);
+});
+
+test('página do convite: monta o link certo e escapa o que vem da URL', () => {
+  const req = (url, headers = {}) => ({ url, method: 'GET', headers: { host: 'abc-def.trycloudflare.com', ...headers } });
+  const via = inviteFromRequest(req('/filme-sexta', { 'x-forwarded-proto': 'https' }));
+  assert.equal(via.invite, 'https://abc-def.trycloudflare.com/filme-sexta');
+  assert.equal(via.deepLink, deepLinkFor(via.invite));
+  assert.equal(inviteFromRequest(req('/sala', { host: '192.168.0.10:47800' })).invite, 'http://192.168.0.10:47800/sala');
+  assert.equal(inviteFromRequest(req('/sala', { host: 'evil.com"><script>' })), null, 'host inválido');
+  assert.equal(inviteFromRequest(req('/a/b')), null, 'sala com barra não é convite');
+
+  const render = (url) => {
+    const out = { status: 0, headers: {}, body: '' };
+    handleHttpRequest(req(url), {
+      writeHead: (status, headers) => { out.status = status; out.headers = headers; },
+      end: (body) => { out.body = String(body ?? ''); },
+    });
+    return out;
+  };
+  const page = render(`/${encodeURIComponent('<img src=x onerror=alert(1)>')}`);
+  assert.equal(page.status, 200);
+  assert.ok(!page.body.includes('<img src=x'), 'o nome da sala não vira HTML');
+  assert.ok(page.body.includes('&lt;img src=x onerror=alert(1)&gt;'));
+  assert.equal(page.headers['X-Frame-Options'], 'DENY');
+  assert.equal(render('/').status, 200);
+  assert.equal(render('/favicon.ico').status, 404);
+  assert.ok(render('/robots.txt').body.includes('Disallow: /'));
+});
+
+test('predefinições de qualidade e H.264 automático', () => {
+  assert.equal(matchPreset(QUALITY_PRESETS.find((p) => p.id === 'game').settings), 'game');
+  assert.equal(matchPreset({ resolution: '1080p', fps: 30, bitrate: 0, optimize: 'motion', codec: 'auto' }), 'movie');
+  assert.equal(matchPreset({ resolution: '1080p', fps: 45, bitrate: 0, optimize: 'motion', codec: 'auto' }), null);
+  assert.equal(resolveCodec('auto', true), 'H264');
+  assert.equal(resolveCodec('auto', false), 'auto');
+  assert.equal(resolveCodec('VP9', true), 'VP9');
+});
+
+test('sugestão de um clique quando a internet ou o processador não dão conta', () => {
+  const game = { resolution: '1080p', fps: 60, bitrate: 0, optimize: 'motion', codec: 'auto' };
+  // Codec escolhido que pesa no processador + placa de vídeo disponível: sugere H.264.
+  assert.equal(suggestLowerSettings({ ...game, codec: 'VP9' }, 'cpu', { hardwareH264: true }).settings.codec, 'H264');
+  // "Automático" com placa de vídeo já é H.264: a próxima saída é baixar o FPS.
+  assert.equal(suggestLowerSettings(game, 'cpu', { hardwareH264: true }).settings.fps, 30);
+  const fps = suggestLowerSettings(game, 'bandwidth');
+  assert.equal(fps.settings.fps, 30);
+  assert.equal(fps.text, 'Baixar para 30 quadros/s');
+  const res = suggestLowerSettings({ ...game, fps: 30 }, 'bandwidth');
+  assert.equal(res.settings.resolution, '720p');
+  assert.equal(res.text, 'Baixar para 720p');
+  assert.equal(suggestLowerSettings({ ...game, resolution: 'native', fps: 30 }, 'cpu').settings.resolution, '1080p');
+  assert.equal(suggestLowerSettings({ ...game, resolution: '720p', fps: 30 }, 'bandwidth').settings.bitrate, 2);
+  assert.equal(suggestLowerSettings({ ...game, resolution: '480p', fps: 15, bitrate: 2 }, 'bandwidth'), null);
+});
+
+test('sinal: ótimo, bom ou ruim', () => {
+  assert.equal(levelFrom({ rtt: 0.03, loss: 0 }), 'good');
+  assert.equal(levelFrom({ rtt: 0.2, loss: 0 }), 'ok');
+  assert.equal(levelFrom({ rtt: 0.03, loss: 0.03 }), 'ok');
+  assert.equal(levelFrom({ rtt: 0.03, loss: 0, limited: true }), 'ok');
+  assert.equal(levelFrom({ rtt: 0.5, loss: 0 }), 'bad');
+  assert.equal(levelFrom({ rtt: null, loss: null }), null);
+  assert.equal(peerSignal({ recvVideo: { lossRate: 0.1 }, route: { rtt: 0.02 } }), 'bad');
+  assert.equal(peerSignal({ sendVideo: { bitrate: 1e6, limitation: 'bandwidth' }, remoteVideo: { rtt: 0.02, fractionLost: 0 } }), 'ok');
+  assert.equal(peerSignal({ route: { rtt: 0.02 } }), 'good');
+  assert.equal(peerSignal(null), null);
+});
+
+test('o que limita a transmissão: processador, seu upload ou só a conexão de alguém', () => {
+  assert.equal(limitReason([]), null);
+  assert.equal(limitReason(['none', 'none']), null);
+  assert.equal(limitReason(['none', 'cpu']), 'cpu', 'o processador é um só');
+  assert.equal(limitReason(['bandwidth']), 'bandwidth');
+  assert.equal(limitReason(['bandwidth', 'bandwidth']), 'bandwidth');
+  assert.equal(limitReason(['bandwidth', 'none']), null, 'uma pessoa com conexão ruim não é culpa do seu upload');
+  assert.equal(limitReason(['bandwidth', 'none', 'none']), null);
+  assert.equal(limitReason(['bandwidth', 'bandwidth', 'none']), 'bandwidth', 'a maioria limitada aponta para o seu upload');
+  assert.equal(limitReason(['bandwidth', 'bandwidth', 'none', 'none']), null);
+  assert.equal(limitReason([undefined, 'bandwidth']), null, 'quem ainda não tem estatística conta como não limitado');
+});
+
+test('argumentos do auxiliar de som em cada modo', () => {
+  const base = { sourceId: 'window:4242:0', exclude: ['Discord.exe'], selfExe: 'Telao.exe', pid: 99 };
+  assert.deepEqual(helperArgs({ ...base, mode: 'all' }),
+    ['--mode', 'all', '--exclude-pids', '99', '--exclude-names', 'Discord.exe,Telao.exe']);
+  assert.deepEqual(helperArgs({ ...base, mode: 'app' }).slice(0, 2), ['--mode', 'app']);
+  assert.deepEqual(helperArgs({ ...base, mode: 'app' }).slice(-2), ['--hwnd', '4242']);
+  const pick = helperArgs({ ...base, mode: 'pick', include: ['Spotify', 'chrome.exe', 'spotify.exe'] });
+  assert.deepEqual(pick.slice(0, 2), ['--mode', 'names']);
+  assert.deepEqual(pick.slice(-2), ['--include-names', 'Spotify.exe,chrome.exe,spotify.exe']);
+  assert.deepEqual(helperArgs({ ...base, mode: 'pick', include: [] }).slice(-2), ['--include-names', '-']);
+  // Escolher um app excluído não o libera: a lista de excluídos continua valendo
+  // (a interface mostra esses apps desativados, com "(excluído)").
+  const pickExcluded = helperArgs({ ...base, mode: 'pick', include: ['Discord.exe'] });
+  assert.deepEqual(pickExcluded.slice(4, 6), ['--exclude-names', 'Discord.exe,Telao.exe']);
 });
 
 // ---------- Aparência (theme.js) ----------
