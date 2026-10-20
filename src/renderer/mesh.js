@@ -161,8 +161,12 @@ export class Mesh extends EventTarget {
         await this.#open();
       } catch (err) {
         if (this.#closed) return;
-        if (err.fatal) this.#emit('fatal', { message: err.message });
-        else this.#scheduleReconnect();
+        if (err.fatal) {
+          this.#emit('fatal', { message: err.message });
+        } else {
+          this.#emit('reconnect-failed', { attempt: this.#reconnectAttempt });
+          this.#scheduleReconnect();
+        }
       }
     }, delay);
   }

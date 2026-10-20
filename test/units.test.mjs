@@ -6,9 +6,15 @@ import { createRequire } from 'node:module';
 import {
   mungeRemoteSdp, pickCodec, startBitrateKbps, targetBitrate, videoConstraints,
 } from '../src/renderer/media.js';
+import { inviteAddress, parseServerAddress } from '../src/renderer/address.js';
 
 const require = createRequire(import.meta.url);
 const { createFrameParser, normalizeExeName } = require('../src/main/app-audio.js');
+
+// theme.js é um script clássico: ao ser carregado, publica globalThis.TelaoTheme.
+await import('../src/renderer/theme.js');
+const Theme = globalThis.TelaoTheme;
+const CSS = (await import('node:fs')).readFileSync(new URL('../src/renderer/styles.css', import.meta.url), 'utf8');
 
 // Ambiente mínimo de AudioWorklet para carregar o processador.
 let Processor = null;
@@ -139,4 +145,161 @@ test('buffer de áudio: espera juntar 40 ms, toca na ordem e limita o atraso', (
 
   p.port.onmessage({ data: samples(48000 * 0.3, 5000) }); // 300 ms de uma vez
   assert.ok(p.count <= 0.25 * 48000, 'não acumula mais de 250 ms');
+});
+
+// ---------- Endereços e convites (address.js) ----------
+
+test('endereço do servidor: formatos aceitos, com e sem a sala no fim', () => {
+  assert.deepEqual(parseServerAddress('192.168.0.10'), { url: 'ws://192.168.0.10:47800', room: '' });
+  assert.deepEqual(parseServerAddress(' 192.168.0.10:47800/sala-k3x9q2a '), { url: 'ws://192.168.0.10:47800', room: 'sala-k3x9q2a' });
+  assert.deepEqual(parseServerAddress('https://abc-def.trycloudflare.com/filme%20sexta/'), { url: 'wss://abc-def.trycloudflare.com', room: 'filme sexta' });
+  assert.deepEqual(parseServerAddress('wss://abc-def.trycloudflare.com'), { url: 'wss://abc-def.trycloudflare.com', room: '' });
+  assert.deepEqual(parseServerAddress('meu-servico.onrender.com/sala'), { url: 'wss://meu-servico.onrender.com', room: 'sala' });
+  assert.deepEqual(parseServerAddress('localhost:5000'), { url: 'ws://localhost:5000', room: '' });
+  assert.equal(parseServerAddress(''), null);
+  assert.equal(parseServerAddress('wss://'), null);
+});
+
+test('convite = endereço + sala, e volta igual ao ser lido', () => {
+  for (const [base, room] of [
+    ['wss://abc-def.trycloudflare.com', 'sala-k3x9q2a'],
+    ['192.168.0.10:47800', 'filme sexta'],
+    ['wss://x.example.com/', 'Ação/Terror'],
+  ]) {
+    const invite = inviteAddress(base, room);
+    assert.equal(parseServerAddress(invite).room, room, invite);
+  }
+  assert.equal(inviteAddress('wss://a.trycloudflare.com', 'sala-1'), 'wss://a.trycloudflare.com/sala-1');
+});
+
+// ---------- Aparência (theme.js) ----------
+
+const WHITE = { r: 255, g: 255, b: 255 };
+const BLACK = { r: 0, g: 0, b: 0 };
+
+test('cores: leitura de hexadecimal e contraste WCAG', () => {
+  assert.deepEqual(Theme.parseHex('#abc'), { r: 170, g: 187, b: 204 });
+  assert.deepEqual(Theme.parseHex('2563EB'), { r: 37, g: 99, b: 235 });
+  assert.equal(Theme.parseHex('#12345'), null);
+  assert.equal(Theme.parseHex('azul'), null);
+  assert.equal(Theme.toHex({ r: 37, g: 99, b: 235 }), '#2563eb');
+  assert.equal(Number(Theme.contrast(WHITE, BLACK).toFixed(2)), 21);
+});
+
+// Superfícies sobre as quais bordas e anéis de foco aparecem (painel, fundo, campos,
+// grupo segmentado e fundo rebaixado da sala), em cada modo.
+const RING_SURFACES = {
+  dark: ['#151a21', '#0d1117', '#10151c', '#090c10'],
+  light: ['#ffffff', '#f4f6f9', '#eef1f5', '#e9edf2'],
+};
+const minRingContrast = (ui, mode) => Math.min(...RING_SURFACES[mode].map((s) => Theme.contrast(ui, Theme.parseHex(s))));
+
+test('cores prontas: texto legível (4,5:1) e bordas visíveis (3:1) nos dois temas', () => {
+  for (const preset of Theme.PRESETS) {
+    for (const mode of ['dark', 'light']) {
+      const vars = Theme.accentVars(preset.color, mode);
+      const accent = Theme.parseHex(vars['--accent']);
+      const text = Theme.parseHex(vars['--accent-text']);
+      const ui = Theme.parseHex(vars['--accent-ui']);
+      assert.ok(Theme.contrast(text, accent) >= 4.5, `${preset.name}/${mode}: texto do botão`);
+      assert.ok(minRingContrast(ui, mode) >= 3, `${preset.name}/${mode}: borda/foco`);
+    }
+    const expected = preset.name === 'Amarelo' ? '#000000' : '#ffffff';
+    assert.equal(Theme.accentVars(preset.color, 'dark')['--accent-text'], expected, `${preset.name}: cor do texto`);
+  }
+});
+
+test('qualquer cor escolhida mantém o contraste mínimo (500 cores aleatórias)', () => {
+  let seed = 12345;
+  const random = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+  for (let i = 0; i < 500; i++) {
+    const color = Theme.toHex({ r: random() * 255, g: random() * 255, b: random() * 255 });
+    for (const mode of ['dark', 'light']) {
+      const vars = Theme.accentVars(color, mode);
+      const accent = Theme.parseHex(vars['--accent']);
+      const text = Theme.parseHex(vars['--accent-text']);
+      const hover = Theme.parseHex(vars['--accent-hover']);
+      const ui = Theme.parseHex(vars['--accent-ui']);
+      assert.ok(Theme.contrast(text, accent) >= 4.5, `${color}/${mode}: texto`);
+      assert.ok(Theme.contrast(text, hover) >= Theme.contrast(text, accent) - 0.01, `${color}/${mode}: hover não piora`);
+      assert.ok(minRingContrast(ui, mode) >= 3, `${color}/${mode}: borda/foco`);
+    }
+  }
+});
+
+test('aparência inválida volta ao padrão', () => {
+  assert.deepEqual(Theme.normalize(null), { theme: 'dark', accent: '#2563eb' });
+  assert.deepEqual(Theme.normalize({ theme: 'azul', accent: 'xyz' }), { theme: 'dark', accent: '#2563eb' });
+  assert.deepEqual(Theme.normalize({ theme: 'light', accent: '#ABCDEF' }), { theme: 'light', accent: '#abcdef' });
+});
+
+test('apply() marca o modo e grava as variáveis', () => {
+  const props = {};
+  const root = { dataset: {}, style: { setProperty: (k, v) => { props[k] = v; } } };
+  const applied = Theme.apply({ theme: 'light', accent: '#eab308' }, root);
+  assert.equal(applied.mode, 'light');
+  assert.equal(root.dataset.mode, 'light');
+  assert.equal(props['--accent'], '#eab308');
+  assert.equal(props['--accent-text'], '#000000');
+  // "Igual ao Windows" sem matchMedia disponível cai no escuro…
+  assert.equal(Theme.apply({ theme: 'system' }, root).mode, 'dark');
+  // …e usa o modo que o processo principal informar.
+  assert.equal(Theme.apply({ theme: 'system' }, root, 'light').mode, 'light');
+  assert.equal(root.dataset.mode, 'light');
+});
+
+test('"Igual ao Windows" segue o tema do sistema', () => {
+  const original = globalThis.matchMedia;
+  try {
+    globalThis.matchMedia = () => ({ matches: true });
+    assert.equal(Theme.effectiveMode('system'), 'light');
+    globalThis.matchMedia = () => ({ matches: false });
+    assert.equal(Theme.effectiveMode('system'), 'dark');
+    assert.equal(Theme.effectiveMode('light'), 'light');
+  } finally {
+    globalThis.matchMedia = original;
+  }
+});
+
+test('load() lê a aparência que o app.js grava (mesma chave)', () => {
+  const original = globalThis.localStorage;
+  const storage = (value) => ({ getItem: (key) => (key === Theme.PREFS_KEY ? value : null) });
+  try {
+    globalThis.localStorage = storage(JSON.stringify({ name: 'x', appearance: { theme: 'light', accent: '#DB2777' } }));
+    assert.deepEqual(Theme.load(), { theme: 'light', accent: '#db2777' });
+    globalThis.localStorage = storage(JSON.stringify({ appearance: null })); // depois de "Restaurar o padrão"
+    assert.deepEqual(Theme.load(), Theme.DEFAULT_APPEARANCE);
+    globalThis.localStorage = storage('{corrompido');
+    assert.deepEqual(Theme.load(), Theme.DEFAULT_APPEARANCE);
+  } finally {
+    globalThis.localStorage = original;
+  }
+});
+
+test('aparência do processo principal: validação e padrões iguais aos da interface', () => {
+  const { DEFAULT_APPEARANCE, normalizeAppearance } = require('../src/main/appearance.js');
+  assert.equal(DEFAULT_APPEARANCE.theme, Theme.DEFAULT_APPEARANCE.theme);
+  assert.equal(DEFAULT_APPEARANCE.backgrounds.dark, Theme.SURFACES.dark.bg);
+  assert.equal(DEFAULT_APPEARANCE.backgrounds.light, Theme.SURFACES.light.bg);
+  assert.deepEqual(normalizeAppearance(null), { theme: 'dark', backgrounds: { dark: '#0d1117', light: '#f4f6f9' } });
+  assert.deepEqual(normalizeAppearance({ theme: 'roxo', backgrounds: { dark: 'red', light: '#ABCDEF' } }),
+    { theme: 'dark', backgrounds: { dark: '#0d1117', light: '#ABCDEF' } });
+  const current = { theme: 'light', backgrounds: { dark: '#111111', light: '#eeeeee' } };
+  assert.deepEqual(normalizeAppearance({ theme: 'system' }, current), { theme: 'system', backgrounds: current.backgrounds });
+});
+
+test('CSS e theme.js usam as mesmas cores padrão e superfícies', () => {
+  const block = (selector) => CSS.slice(CSS.indexOf(`${selector} {`), CSS.indexOf('}', CSS.indexOf(`${selector} {`)));
+  const value = (css, name) => (new RegExp(`${name}:[ \\t]*([^;]+);`).exec(css) || [])[1];
+  const root = block(':root');
+  const light = block(':root[data-mode="light"]');
+  for (const [name, expected] of Object.entries(Theme.accentVars(Theme.DEFAULT_APPEARANCE.accent, 'dark'))) {
+    assert.equal(value(root, name), expected, `padrão de ${name} no CSS`);
+  }
+  for (const [mode, css] of [['dark', root], ['light', light]]) {
+    assert.equal(value(css, '--panel'), Theme.SURFACES[mode].panel, `--panel (${mode})`);
+    assert.equal(value(css, '--bg'), Theme.SURFACES[mode].bg, `--bg (${mode})`);
+    assert.equal(value(css, '--bg-sunken'), Theme.SURFACES[mode].sunken, `--bg-sunken (${mode})`);
+    assert.equal(value(css, '--seg-bg'), RING_SURFACES[mode][2], `--seg-bg (${mode})`);
+  }
 });

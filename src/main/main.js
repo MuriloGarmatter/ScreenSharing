@@ -5,11 +5,12 @@ const fs = require('node:fs');
 const os = require('node:os');
 const http = require('node:http');
 const {
-  app, BrowserWindow, Menu, clipboard, desktopCapturer, ipcMain, powerSaveBlocker, screen, session, shell,
+  app, BrowserWindow, Menu, clipboard, desktopCapturer, ipcMain, nativeTheme, powerSaveBlocker, screen, session, shell,
 } = require('electron');
 const { attachSignaling, turnServers, DEFAULT_ICE_SERVERS } = require('../../server/signaling');
 const { findCloudflared, startTunnel, downloadCloudflared } = require('./tunnel');
 const { AppAudio, DEFAULT_EXCLUDED_APPS } = require('./app-audio');
+const { normalizeAppearance } = require('./appearance');
 
 // "--profile=nome" usa uma pasta de dados separada, permitindo abrir duas
 // instâncias no mesmo PC (útil para testar).
@@ -36,13 +37,51 @@ const appAudio = new AppAudio({
 let hosted = null; // { httpServer, signaling, port, tunnel }
 let powerBlockerId = null;
 
+// ---------- Aparência ----------
+// A interface guarda tema e cor; aqui fica só o necessário antes de ela carregar:
+// o tema nativo e a cor de fundo da janela (evita piscar escuro no tema claro).
+
+const appearanceFile = () => path.join(app.getPath('userData'), 'appearance.json');
+
+function readAppearance() {
+  try {
+    return normalizeAppearance(JSON.parse(fs.readFileSync(appearanceFile(), 'utf8')));
+  } catch {
+    return normalizeAppearance(null);
+  }
+}
+
+/** Troca o tema nativo e devolve o modo que vale agora ('dark' ou 'light'). */
+function applyNativeTheme(theme) {
+  nativeTheme.themeSource = theme;
+  return nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
+}
+
+// Devolve o modo efetivo: com "Igual ao Windows" só aqui se sabe o certo na hora.
+ipcMain.handle('appearance:set', (_event, options = {}) => {
+  const current = readAppearance();
+  const next = normalizeAppearance(options, current);
+  const mode = applyNativeTheme(next.theme);
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setBackgroundColor(next.backgrounds[mode]);
+  if (JSON.stringify(next) !== JSON.stringify(current)) {
+    try {
+      fs.writeFileSync(appearanceFile(), JSON.stringify(next));
+    } catch (err) {
+      console.warn('Não foi possível salvar a aparência:', err.message);
+    }
+  }
+  return mode;
+});
+
 function createWindow() {
+  const appearance = readAppearance();
+  const mode = applyNativeTheme(appearance.theme);
   mainWindow = new BrowserWindow({
     width: 1360,
     height: 860,
     minWidth: 960,
     minHeight: 620,
-    backgroundColor: '#0d1117',
+    backgroundColor: appearance.backgrounds[mode],
     title: 'Telão',
     icon: fs.existsSync(ICON_PATH) ? ICON_PATH : undefined,
     show: false,

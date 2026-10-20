@@ -132,7 +132,8 @@ function attachSignaling(httpServer, options = {}) {
       if (!me) {
         if (msg.type !== 'join' || joining) return;
         joining = true;
-        const room = cleanText(msg.room, 64);
+        // Maiúsculas/minúsculas não importam: "Filme-Sexta" e "filme-sexta" são a mesma sala.
+        const room = cleanText(msg.room, 64).toLowerCase();
         const name = cleanText(msg.name, 32) || 'Anônimo';
         if (!room) return reject(ws, 'bad-room', 'Nome de sala inválido.');
         if (password && !safeEqual(msg.password || '', password)) {

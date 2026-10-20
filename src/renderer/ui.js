@@ -36,12 +36,21 @@ const PATHS = {
   download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>',
   globe: '<circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
   wifi: '<path d="M5 12.6a10 10 0 0 1 14 0M8.5 16.1a5 5 0 0 1 7 0M2 8.8a15 15 0 0 1 20 0"/><path d="M12 20h.01"/>',
+  palette: '<path d="M12 2a10 10 0 0 0 0 20c1 0 1.7-.8 1.7-1.7 0-.4-.2-.8-.4-1.1-.3-.3-.5-.7-.5-1.1 0-.9.8-1.7 1.7-1.7h2c3 0 5.5-2.5 5.5-5.5C22 6 17.5 2 12 2z"/><circle cx="7.5" cy="10.5" r="1.2" fill="currentColor" stroke="none"/><circle cx="11" cy="6.5" r="1.2" fill="currentColor" stroke="none"/><circle cx="16" cy="7.5" r="1.2" fill="currentColor" stroke="none"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
 };
 
-const LOGO = `<svg viewBox="0 0 48 48" aria-hidden="true"><defs><linearGradient id="telao-logo" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient></defs><rect width="48" height="48" rx="12" fill="url(#telao-logo)"/><rect x="10" y="11.5" width="28" height="19" rx="3.5" fill="none" stroke="#fff" stroke-width="3"/><path d="M24 31v5M17 37h14" stroke="#fff" stroke-width="3" stroke-linecap="round"/><path d="M21.5 16.8v8.4l7-4.2z" fill="#fff"/></svg>`;
+// Cada cópia do logo precisa de um id de degradê próprio: um degradê dentro de
+// um trecho escondido da página (ex.: a tela de entrada) não é desenhado.
+let logoCount = 0;
+function logo() {
+  logoCount += 1;
+  const id = `telao-logo-${logoCount}`;
+  return `<svg viewBox="0 0 48 48" aria-hidden="true"><defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2563eb"/><stop offset="1" stop-color="#6b25eb"/></linearGradient></defs><rect width="48" height="48" rx="12" fill="url(#${id})"/><rect x="10" y="11.5" width="28" height="19" rx="3.5" fill="none" stroke="currentColor" stroke-width="3"/><path d="M24 31v5M17 37h14" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path d="M21.5 16.8v8.4l7-4.2z" fill="currentColor"/></svg>`;
+}
 
 export function icon(name) {
-  if (name === 'logo') return LOGO;
+  if (name === 'logo') return logo();
   return `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${PATHS[name] || ''}</svg>`;
 }
 

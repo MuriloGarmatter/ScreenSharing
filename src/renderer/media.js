@@ -13,9 +13,10 @@ export const FRAME_RATES = [5, 10, 15, 24, 30, 45, 60];
 // 0 = automático (calculado pela resolução e FPS). Valores em Mb/s.
 export const BITRATES = [0, 1, 2, 3, 5, 8, 12, 16, 25, 40];
 
+// Rótulos curtos: o seletor fica numa coluna estreita do painel.
 export const OPTIMIZE = [
-  { id: 'motion', label: 'Movimento (jogos, vídeos)' },
-  { id: 'detail', label: 'Nitidez (texto, código)' },
+  { id: 'motion', label: 'Movimento' },
+  { id: 'detail', label: 'Nitidez' },
 ];
 
 export const CODECS = [

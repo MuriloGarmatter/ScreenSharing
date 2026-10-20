@@ -92,6 +92,22 @@ test('entrar, ver os outros, repassar sinal e estado, sair', async () => {
   }
 });
 
+test('nome da sala não diferencia maiúsculas de minúsculas', async () => {
+  const srv = await startServer();
+  try {
+    const a = await connect(srv.url);
+    a.send({ type: 'join', room: 'Filme-Sexta', name: 'Alice' });
+    await a.next('welcome');
+    const b = await connect(srv.url);
+    b.send({ type: 'join', room: ' filme-sexta ', name: 'Bob' });
+    assert.deepEqual((await b.next('welcome')).peers.map((p) => p.name), ['Alice']);
+    a.ws.close();
+    b.ws.close();
+  } finally {
+    await srv.close();
+  }
+});
+
 test('senha errada é recusada e senha certa é aceita', async () => {
   const srv = await startServer({ password: 'segredo' });
   try {

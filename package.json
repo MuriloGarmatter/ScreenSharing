@@ -1,7 +1,7 @@
 {
   "name": "telao",
   "productName": "Telao",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "Compartilhamento de tela P2P com som, escolha de tela, resolução, FPS e bitrate.",
   "author": "Telao",
@@ -37,13 +37,26 @@
       "buildResources": "build"
     },
     "extraResources": [
-      { "from": "resources/telao-audio.exe", "to": "telao-audio.exe" }
+      {
+        "from": "resources/telao-audio.exe",
+        "to": "telao-audio.exe"
+      }
     ],
     "win": {
       "icon": "build/icon.png",
       "target": [
-        { "target": "nsis", "arch": ["x64"] },
-        { "target": "portable", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
       ]
     },
     "nsis": {

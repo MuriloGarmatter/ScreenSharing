@@ -5,6 +5,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' blob: mediastream:; connect-src ws: wss:">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Telão</title>
+  <script src="theme.js"></script>
   <link rel="stylesheet" href="styles.css">
   <script type="module" src="app.js"></script>
 </head>
@@ -18,6 +19,7 @@
           <h1>Telão</h1>
           <p>Compartilhe a tela com som, direto entre os computadores.</p>
         </div>
+        <button type="button" class="icon-btn" data-open-appearance title="Aparência: tema e cores" aria-label="Aparência: tema e cores" data-icon="palette"></button>
       </header>
 
       <label class="field">
@@ -43,7 +45,7 @@
       <div id="join-fields" class="mode-fields">
         <label class="field">
           <span>Endereço do servidor</span>
-          <input id="server-url" placeholder="192.168.0.10:47800  ou  wss://xxxx.trycloudflare.com" autocomplete="off" spellcheck="false">
+          <input id="server-url" placeholder="cole o convite: wss://xxxx.trycloudflare.com/nome-da-sala" autocomplete="off" spellcheck="false">
         </label>
         <label class="field">
           <span>Senha do servidor <em>(se houver)</em></span>
@@ -98,6 +100,7 @@
         <span id="server-status" class="pill ok">conectado</span>
       </div>
       <div class="topbar-right">
+        <button class="icon-btn" data-open-appearance title="Aparência: tema e cores" aria-label="Aparência: tema e cores" data-icon="palette"></button>
         <button id="share-btn" class="btn primary"></button>
         <button id="leave-btn" class="btn ghost"><span data-icon="logout"></span>Sair</button>
       </div>
@@ -117,7 +120,7 @@
         <h3>Convidar amigos</h3>
         <div id="invite-lan" class="invite-group"></div>
         <div id="invite-internet" class="invite-group"></div>
-        <p class="hint">Envie o endereço, o nome da sala (<strong id="invite-room"></strong>) e a senha, se tiver.</p>
+        <p class="hint">Copie e mande um convite: ele já inclui o nome da sala (<strong id="invite-room"></strong>). Se você pôs senha, mande a senha também.</p>
       </section>
 
       <section class="panel">
@@ -143,7 +146,7 @@
           <label class="field"><span>Resolução</span><select id="q-resolution"></select></label>
           <label class="field"><span>Quadros/s (FPS)</span><select id="q-fps"></select></label>
           <label class="field"><span>Bitrate máximo</span><select id="q-bitrate"></select></label>
-          <label class="field"><span>Otimizar para</span><select id="q-optimize"></select></label>
+          <label class="field" title="Movimento: jogos e vídeos (prioriza a fluidez). Nitidez: texto e código (prioriza letras legíveis)."><span>Otimizar para</span><select id="q-optimize"></select></label>
           <label class="field wide"><span>Codec de vídeo</span><select id="q-codec"></select></label>
         </div>
         <p id="bitrate-hint" class="hint"></p>
@@ -190,6 +193,42 @@
         <button id="picker-cancel" class="btn ghost">Cancelar</button>
         <button id="picker-start" class="btn primary" disabled>Transmitir</button>
       </div>
+    </footer>
+  </dialog>
+
+  <!-- Aparência -->
+  <dialog id="appearance" class="appearance" aria-labelledby="appearance-title">
+    <header class="picker-head">
+      <h2 id="appearance-title">Aparência</h2>
+      <button id="appearance-close" class="icon-btn" title="Fechar" aria-label="Fechar" data-icon="x"></button>
+    </header>
+    <div class="appearance-body">
+      <div class="appearance-group">
+        <span class="field-label" id="theme-label">Tema</span>
+        <div class="segmented three" role="radiogroup" aria-labelledby="theme-label">
+          <input type="radio" name="theme" id="theme-dark" value="dark">
+          <label for="theme-dark">Escuro</label>
+          <input type="radio" name="theme" id="theme-light" value="light">
+          <label for="theme-light">Claro</label>
+          <input type="radio" name="theme" id="theme-system" value="system">
+          <label for="theme-system">Igual ao Windows</label>
+        </div>
+      </div>
+      <div class="appearance-group">
+        <span class="field-label" id="accent-label">Cor de destaque</span>
+        <div id="accent-swatches" class="swatches" role="group" aria-labelledby="accent-label"></div>
+        <label class="custom-color" id="accent-custom-label">
+          <input type="color" id="accent-custom" aria-label="Escolher outra cor">
+          <span>Outra cor…</span>
+          <code id="accent-hex"></code>
+        </label>
+      </div>
+      <p class="hint">As mudanças valem na hora e ficam salvas neste computador.</p>
+    </div>
+    <footer class="appearance-foot">
+      <button id="appearance-reset" class="btn ghost">Restaurar o padrão</button>
+      <span class="spacer"></span>
+      <button id="appearance-done" class="btn primary">Pronto</button>
     </footer>
   </dialog>
 

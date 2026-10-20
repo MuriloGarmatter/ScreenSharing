@@ -1,3 +1,4 @@
+import { DEFAULT_PORT, inviteAddress, parseServerAddress } from './address.js';
 import { AppAudioCapture, LevelMeter, routeAppAudioData, routeAppAudioEvent } from './app-audio.js';
 import { Mesh } from './mesh.js';
 import {
@@ -8,8 +9,8 @@ import { LIMITATION_TEXT, StatsTracker, describeRoute, hardwareLabel } from './s
 import { $, $$, el, formatBitrate, formatFps, hueFor, hydrateIcons, icon, toast } from './ui.js';
 
 const api = window.telao;
-const PREFS_KEY = 'telao.prefs.v1';
-const DEFAULT_PORT = 47800;
+const Theme = window.TelaoTheme; // theme.js, carregado antes no <head>
+const PREFS_KEY = Theme.PREFS_KEY; // a mesma chave que o theme.js lê na abertura
 
 const state = {
   info: { systemAudio: false, appAudio: false, defaultExcludedApps: [] },
@@ -32,17 +33,21 @@ const prefs = loadPrefs();
 function loadPrefs() {
   const defaults = {
     name: '', room: '', mode: 'join',
-    serverUrl: '', serverPassword: '',
-    hostPort: DEFAULT_PORT, hostPassword: '', tunnel: true,
+    serverUrl: '',
+    hostPort: DEFAULT_PORT, tunnel: true,
     turnUrls: '', turnUsername: '', turnCredential: '',
     share: { ...DEFAULT_SHARE_SETTINGS }, audio: true, antiEcho: true,
     // Som: 'all' = todos os apps menos os excluídos, 'app' = só o app da janela,
     // 'system' = tudo, sem filtro. Lembrado separadamente para tela e janela.
     audioModeScreen: 'all', audioModeWindow: 'app',
     audioExclude: null, // null = lista padrão
+    appearance: null, // { theme, accent }; null = padrão (ver theme.js)
   };
   try {
     const saved = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}');
+    // Senhas não são guardadas (versões antigas guardavam: descarta).
+    delete saved.serverPassword;
+    delete saved.hostPassword;
     return { ...defaults, ...saved, share: { ...defaults.share, ...(saved.share || {}) } };
   } catch {
     return defaults;
@@ -63,35 +68,14 @@ function randomRoom() {
   return `sala-${[...bytes].map((b) => b.toString(36).padStart(2, '0')).join('').slice(0, 7)}`;
 }
 
-/** Aceita "192.168.0.10", "192.168.0.10:47800", "http(s)://..." ou "ws(s)://...". */
-function normalizeServerUrl(input) {
-  let value = input.trim();
-  if (!value) return '';
-  if (/^https:\/\//i.test(value)) value = `wss://${value.slice(8)}`;
-  else if (/^http:\/\//i.test(value)) value = `ws://${value.slice(7)}`;
-  else if (!/^wss?:\/\//i.test(value)) {
-    const host = value.split('/')[0].replace(/:\d+$/, '');
-    const local = /^[\d.]+$/.test(host) || host === 'localhost' || !host.includes('.');
-    value = `${local ? 'ws' : 'wss'}://${value}`;
-  }
-  try {
-    const url = new URL(value);
-    if (url.protocol === 'ws:' && !url.port) url.port = String(DEFAULT_PORT);
-    return url.toString().replace(/\/$/, '');
-  } catch {
-    return '';
-  }
-}
-
 // ---------- Tela de entrada ----------
 
 function restoreJoinForm() {
   $('#name').value = prefs.name;
-  $('#room').value = prefs.room || randomRoom();
+  // Só quem hospeda ganha um nome de sala sorteado; quem entra usa o do convite.
+  $('#room').value = prefs.room || (prefs.mode === 'host' ? randomRoom() : '');
   $('#server-url').value = prefs.serverUrl;
-  $('#server-password').value = prefs.serverPassword;
   $('#host-port').value = prefs.hostPort;
-  $('#host-password').value = prefs.hostPassword;
   $('#host-tunnel').checked = prefs.tunnel;
   $('#turn-urls').value = prefs.turnUrls;
   $('#turn-username').value = prefs.turnUsername;
@@ -109,6 +93,14 @@ function syncModeFields() {
   $('#host-fields').hidden = !host;
   $('#join-fields').hidden = host;
   $('#join-btn').textContent = host ? 'Criar sala e entrar' : 'Entrar na sala';
+  $('#room').placeholder = host ? 'ex.: filme-sexta' : 'vem junto no endereço do convite';
+  if (host && !$('#room').value.trim()) $('#room').value = randomRoom();
+}
+
+/** Colou um convite (endereço + sala)? Preenche o campo Sala com a sala dele. */
+function fillRoomFromAddress() {
+  const parsed = parseServerAddress($('#server-url').value);
+  if (parsed?.room) $('#room').value = parsed.room;
 }
 
 function showJoinError(message, focusSelector) {
@@ -129,18 +121,25 @@ function setJoinBusy(busy) {
 async function onJoin(event) {
   event.preventDefault();
   $('#join-error').hidden = true;
+  const mode = currentMode();
+  const address = mode === 'join' ? parseServerAddress($('#server-url').value) : null;
+  if (address?.room) $('#room').value = address.room; // o convite manda na sala
   const name = $('#name').value.trim();
   const room = $('#room').value.trim();
-  const mode = currentMode();
   if (!name) return showJoinError('Digite seu nome.', '#name');
-  if (!room) return showJoinError('Digite o nome da sala.', '#room');
+  if (mode === 'join' && !address) {
+    return showJoinError('Cole o endereço que quem hospeda mandou (ex.: wss://xxxx.trycloudflare.com/sala-abc).', '#server-url');
+  }
+  if (!room) {
+    return showJoinError(mode === 'join'
+      ? 'Digite o nome da sala (ou cole o endereço completo do convite, que já traz a sala).'
+      : 'Digite o nome da sala.', '#room');
+  }
 
   Object.assign(prefs, {
     name, room, mode,
     serverUrl: $('#server-url').value.trim(),
-    serverPassword: $('#server-password').value,
     hostPort: Number($('#host-port').value) || DEFAULT_PORT,
-    hostPassword: $('#host-password').value,
     tunnel: $('#host-tunnel').checked,
     turnUrls: $('#turn-urls').value.trim(),
     turnUsername: $('#turn-username').value.trim(),
@@ -153,18 +152,17 @@ async function onJoin(event) {
     let url;
     let password;
     if (mode === 'host') {
+      password = $('#host-password').value;
       const hosted = await api.startServer({
         port: prefs.hostPort,
-        password: prefs.hostPassword,
+        password,
         turn: { urls: prefs.turnUrls, username: prefs.turnUsername, credential: prefs.turnCredential },
       });
       state.hosting = { ...hosted, publicUrl: null, tunnel: 'off', tunnelError: '', download: null };
       url = `ws://127.0.0.1:${hosted.port}`;
-      password = prefs.hostPassword;
     } else {
-      url = normalizeServerUrl(prefs.serverUrl);
-      if (!url) throw new Error('Digite o endereço do servidor (ex.: 192.168.0.10:47800).');
-      password = prefs.serverPassword;
+      url = address.url;
+      password = $('#server-password').value;
     }
     const mesh = new Mesh({ url, room, name, password });
     state.mesh = mesh;
@@ -227,6 +225,12 @@ function wireMesh(mesh) {
     toast(message, 'error', 8000);
     leaveRoom(true);
   });
+  on('reconnect-failed', ({ attempt }) => {
+    // A reconexão tenta sempre o mesmo endereço. Se a sala foi recriada, o link mudou.
+    if (attempt === 3 && !state.hosting) {
+      toast('Ainda sem conexão com a sala. Se quem hospeda fechou o Telão ou criou a sala de novo, o endereço mudou: peça o novo, clique em Sair e entre de novo.', 'warn', 20000);
+    }
+  });
 }
 
 function enterRoom() {
@@ -280,25 +284,32 @@ function setServerStatus(connected) {
 
 // ---------- Convite (quando hospeda) ----------
 
-function inviteRow(text) {
-  const copy = el('button', { class: 'icon-btn small', title: 'Copiar', html: icon('copy') });
+function inviteRow(text, adapter) {
+  const copy = el('button', { class: 'icon-btn small', title: 'Copiar convite', 'aria-label': 'Copiar convite', html: icon('copy') });
   copy.addEventListener('click', async () => {
     await api.copyText(text);
-    toast('Copiado!');
+    toast('Convite copiado! Ele já inclui o nome da sala.');
   });
-  return el('div', { class: 'invite-row' }, el('code', { title: text }, text), copy);
+  return el('div', { class: 'invite-item' },
+    adapter ? el('span', { class: 'invite-iface' }, adapter) : null,
+    el('div', { class: 'invite-row' }, el('code', { title: text }, text), copy));
 }
+
+// Placas de VPN e de máquinas virtuais vão para o fim da lista.
+const VIRTUAL_ADAPTER = /vethernet|virtualbox|vmware|wsl|hyper-v|loopback|bluetooth|hamachi|radmin|zerotier|tailscale|vpn|tap|tun/i;
 
 function renderInvite() {
   const hosting = state.hosting;
   $('#invite-panel').hidden = !hosting;
   if (!hosting) return;
-  $('#invite-room').textContent = state.mesh?.room || '';
+  const room = state.mesh?.room || '';
+  $('#invite-room').textContent = room;
 
+  const addresses = [...hosting.addresses].sort((a, b) => VIRTUAL_ADAPTER.test(a.name) - VIRTUAL_ADAPTER.test(b.name));
   $('#invite-lan').replaceChildren(
     el('span', { class: 'invite-label', html: `${icon('wifi')}Na mesma rede (Wi-Fi ou cabo)` }),
-    ...(hosting.addresses.length
-      ? hosting.addresses.map((a) => inviteRow(`${a.address}:${hosting.port}`))
+    ...(addresses.length
+      ? addresses.map((a) => inviteRow(inviteAddress(`${a.address}:${hosting.port}`, room), a.name))
       : [el('p', { class: 'hint' }, 'Nenhuma rede local encontrada.')]),
   );
 
@@ -308,7 +319,7 @@ function renderInvite() {
     bar.style.setProperty('--value', hosting.download.toFixed(3));
     internet.push(el('p', { class: 'hint' }, `Baixando o cloudflared… ${Math.round(hosting.download * 100)}%`), bar);
   } else if (hosting.publicUrl) {
-    internet.push(inviteRow(hosting.publicUrl));
+    internet.push(inviteRow(inviteAddress(hosting.publicUrl, room)));
   } else if (hosting.tunnel === 'starting') {
     internet.push(el('p', { class: 'hint' }, el('span', { class: 'spinner tiny' }), ' Gerando link público…'));
   } else if (hosting.tunnel === 'missing') {
@@ -959,16 +970,99 @@ function setupPicker() {
   });
 }
 
+// ---------- Aparência ----------
+
+function currentAppearance() {
+  return Theme.normalize(prefs.appearance);
+}
+
+/** Aplica tema e cor; o processo principal ajusta o tema nativo e o fundo da janela. */
+async function applyAppearance(notifyMain = true) {
+  const appearance = currentAppearance();
+  Theme.apply(appearance);
+  syncAppearanceDialog();
+  if (!notifyMain) return;
+  try {
+    const mode = await api.setAppearance({
+      theme: appearance.theme,
+      backgrounds: { dark: Theme.SURFACES.dark.bg, light: Theme.SURFACES.light.bg },
+    });
+    // "Igual ao Windows": quem sabe o modo certo na hora é o processo principal.
+    const latest = currentAppearance();
+    if (latest.theme === 'system') Theme.apply(latest, undefined, mode);
+  } catch (err) {
+    console.warn('Não foi possível ajustar o tema da janela:', err);
+  }
+}
+
+function updateAppearance(changes) {
+  prefs.appearance = { ...currentAppearance(), ...changes };
+  savePrefs();
+  applyAppearance('theme' in changes);
+}
+
+function syncAppearanceDialog() {
+  const { theme, accent } = currentAppearance();
+  for (const radio of $$('input[name="theme"]')) radio.checked = radio.value === theme;
+  let isPreset = false;
+  for (const swatch of $$('#accent-swatches .swatch')) {
+    const selected = swatch.dataset.color === accent;
+    if (selected) isPreset = true;
+    swatch.setAttribute('aria-pressed', String(selected));
+  }
+  $('#accent-custom').value = accent;
+  $('#accent-custom-label').classList.toggle('selected', !isPreset);
+  $('#accent-hex').textContent = accent.toUpperCase();
+}
+
+function setupAppearance() {
+  const dialog = $('#appearance');
+  $('#accent-swatches').replaceChildren(...Theme.PRESETS.map((preset) => {
+    const swatch = el('button', {
+      type: 'button', class: 'swatch', title: preset.name, 'aria-label': preset.name,
+      'aria-pressed': 'false', dataset: { color: preset.color }, html: icon('check'),
+    });
+    swatch.style.setProperty('--swatch', preset.color);
+    swatch.style.setProperty('--swatch-text', Theme.toHex(Theme.readableOn(Theme.parseHex(preset.color))));
+    swatch.addEventListener('click', () => updateAppearance({ accent: preset.color }));
+    return swatch;
+  }));
+  for (const radio of $$('input[name="theme"]')) {
+    radio.addEventListener('change', () => updateAppearance({ theme: radio.value }));
+  }
+  $('#accent-custom').addEventListener('input', (event) => updateAppearance({ accent: event.target.value }));
+  $('#appearance-reset').addEventListener('click', () => {
+    prefs.appearance = null;
+    savePrefs();
+    applyAppearance();
+  });
+  $('#appearance-close').addEventListener('click', () => dialog.close());
+  $('#appearance-done').addEventListener('click', () => dialog.close());
+  for (const button of $$('[data-open-appearance]')) {
+    button.addEventListener('click', () => {
+      syncAppearanceDialog();
+      dialog.showModal();
+    });
+  }
+  // "Igual ao Windows": acompanha quando o Windows troca entre claro e escuro.
+  matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => {
+    if (currentAppearance().theme === 'system') applyAppearance();
+  });
+  applyAppearance();
+}
+
 // ---------- Início ----------
 
 async function init() {
   hydrateIcons();
+  setupAppearance();
   state.info = await api.appInfo();
   restoreJoinForm();
   setupQualityControls();
   setupPicker();
 
   for (const radio of $$('input[name="mode"]')) radio.addEventListener('change', syncModeFields);
+  $('#server-url').addEventListener('input', fillRoomFromAddress);
   $('#room-random').addEventListener('click', () => { $('#room').value = randomRoom(); });
   $('#join-form').addEventListener('submit', onJoin);
   $('#share-btn').addEventListener('click', () => (state.share ? stopShare() : openPicker()));

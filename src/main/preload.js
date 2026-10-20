@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('telao', {
   stopAppAudio: (session) => ipcRenderer.invoke('appaudio:stop', session),
   onAppAudioData: (callback) => ipcRenderer.on('appaudio:data', (_event, session, id, payload) => callback(session, id, payload)),
   onAppAudioEvent: (callback) => ipcRenderer.on('appaudio:event', (_event, session, data) => callback(session, data)),
+  setAppearance: (options) => ipcRenderer.invoke('appearance:set', options),
   copyText: (text) => ipcRenderer.invoke('clipboard:write', text),
   keepAwake: (on) => ipcRenderer.invoke('power:keep-awake', on === true),
 });
