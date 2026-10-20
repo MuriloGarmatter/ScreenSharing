@@ -1,0 +1,59 @@
+{
+  "name": "telao",
+  "productName": "Telao",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Compartilhamento de tela P2P com som, escolha de tela, resolução, FPS e bitrate.",
+  "author": "Telao",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "node scripts/build-audio.js && node scripts/start.js",
+    "server": "node server/index.js",
+    "test": "node --test test/signaling.test.js test/units.test.mjs",
+    "test:audio": "node test/app-audio.js",
+    "test:e2e": "node test/e2e.js",
+    "icon": "node scripts/make-icon.js",
+    "build:audio": "node scripts/build-audio.js",
+    "dist": "node scripts/make-icon.js && node scripts/build-audio.js && electron-builder --win"
+  },
+  "dependencies": {
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "electron": "^44.9.2",
+    "electron-builder": "^26.15.3",
+    "playwright-core": "^1.64.1"
+  },
+  "build": {
+    "appId": "br.telao.app",
+    "productName": "Telao",
+    "files": [
+      "src/**/*",
+      "server/signaling.js",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "extraResources": [
+      { "from": "resources/telao-audio.exe", "to": "telao-audio.exe" }
+    ],
+    "win": {
+      "icon": "build/icon.png",
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "Telao-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "Telao-${version}-portable.${ext}",
+      "unpackDirName": "Telao"
+    }
+  }
+}

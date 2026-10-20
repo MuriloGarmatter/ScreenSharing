@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' blob: mediastream:; connect-src ws: wss:">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Telão</title>
+  <link rel="stylesheet" href="styles.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <!-- Entrada -->
+  <main id="join-view" class="join">
+    <form id="join-form" class="join-card" novalidate>
+      <header class="brand">
+        <span class="logo" data-icon="logo"></span>
+        <div>
+          <h1>Telão</h1>
+          <p>Compartilhe a tela com som, direto entre os computadores.</p>
+        </div>
+      </header>
+
+      <label class="field">
+        <span>Seu nome</span>
+        <input id="name" maxlength="32" autocomplete="off" spellcheck="false">
+      </label>
+
+      <div class="field">
+        <label for="room">Sala</label>
+        <span class="input-row">
+          <input id="room" maxlength="64" autocomplete="off" spellcheck="false">
+          <button type="button" id="room-random" class="icon-btn" title="Gerar um nome difícil de adivinhar" data-icon="shuffle"></button>
+        </span>
+      </div>
+
+      <div class="segmented" role="radiogroup" aria-label="Servidor">
+        <input type="radio" name="mode" id="mode-join" value="join" checked>
+        <label for="mode-join">Entrar em um servidor</label>
+        <input type="radio" name="mode" id="mode-host" value="host">
+        <label for="mode-host">Hospedar neste PC</label>
+      </div>
+
+      <div id="join-fields" class="mode-fields">
+        <label class="field">
+          <span>Endereço do servidor</span>
+          <input id="server-url" placeholder="192.168.0.10:47800  ou  wss://xxxx.trycloudflare.com" autocomplete="off" spellcheck="false">
+        </label>
+        <label class="field">
+          <span>Senha do servidor <em>(se houver)</em></span>
+          <input id="server-password" type="password" autocomplete="off">
+        </label>
+      </div>
+
+      <div id="host-fields" class="mode-fields" hidden>
+        <div class="field-row">
+          <label class="field port">
+            <span>Porta</span>
+            <input id="host-port" type="number" min="1024" max="65535" value="47800">
+          </label>
+          <label class="field grow">
+            <span>Senha <em>(opcional)</em></span>
+            <input id="host-password" type="password" autocomplete="off">
+          </label>
+        </div>
+        <label class="check">
+          <input type="checkbox" id="host-tunnel" checked>
+          <span>Criar link público pela internet <em>(Cloudflare Tunnel: grátis e sem abrir portas no roteador)</em></span>
+        </label>
+        <details class="advanced">
+          <summary>Avançado: servidor TURN</summary>
+          <div class="advanced-body">
+            <p class="hint">Opcional. Ajuda quando a conexão direta entre dois PCs falha (redes muito restritas). É repassado para todos da sala.</p>
+            <label class="field">
+              <span>URLs TURN <em>(separadas por vírgula)</em></span>
+              <input id="turn-urls" placeholder="turn:meu.servidor:3478" autocomplete="off" spellcheck="false">
+            </label>
+            <div class="field-row">
+              <label class="field grow"><span>Usuário</span><input id="turn-username" autocomplete="off"></label>
+              <label class="field grow"><span>Senha</span><input id="turn-credential" type="password" autocomplete="off"></label>
+            </div>
+          </div>
+        </details>
+      </div>
+
+      <p id="join-error" class="error" role="alert" hidden></p>
+      <button type="submit" id="join-btn" class="btn primary big">Entrar na sala</button>
+    </form>
+  </main>
+
+  <!-- Sala -->
+  <div id="room-view" class="room" hidden>
+    <header class="topbar">
+      <div class="topbar-left">
+        <span class="logo small" data-icon="logo"></span>
+        <strong>Telão</strong>
+        <span class="sep">/</span>
+        <span id="room-title" class="room-title"></span>
+        <span id="server-status" class="pill ok">conectado</span>
+      </div>
+      <div class="topbar-right">
+        <button id="share-btn" class="btn primary"></button>
+        <button id="leave-btn" class="btn ghost"><span data-icon="logout"></span>Sair</button>
+      </div>
+    </header>
+
+    <section id="stage" class="stage">
+      <div id="empty-stage" class="empty">
+        <span class="empty-icon" data-icon="monitor"></span>
+        <h2>Ninguém está transmitindo</h2>
+        <p>Quando alguém compartilhar a tela, ela aparece aqui. Clique em <strong>Compartilhar tela</strong> para transmitir a sua.</p>
+      </div>
+      <div id="tiles" class="tiles"></div>
+    </section>
+
+    <aside class="sidebar">
+      <section id="invite-panel" class="panel" hidden>
+        <h3>Convidar amigos</h3>
+        <div id="invite-lan" class="invite-group"></div>
+        <div id="invite-internet" class="invite-group"></div>
+        <p class="hint">Envie o endereço, o nome da sala (<strong id="invite-room"></strong>) e a senha, se tiver.</p>
+      </section>
+
+      <section class="panel">
+        <h3>Participantes <span id="participant-count" class="count"></span></h3>
+        <ul id="participants" class="participants"></ul>
+      </section>
+
+      <section class="panel" id="share-panel">
+        <h3>Sua transmissão</h3>
+        <div id="share-live" class="share-live" hidden>
+          <video id="local-preview" muted playsinline autoplay></video>
+          <div class="share-live-info"><span class="live-dot"></span><span id="share-source"></span></div>
+          <div id="share-audio-info" class="share-audio">
+            <div class="meter" title="Nível do som que está sendo transmitido"><span id="share-meter"></span></div>
+            <p id="share-audio-text" class="hint"></p>
+          </div>
+          <div class="share-actions">
+            <button id="switch-btn" class="btn small"><span data-icon="swap"></span>Trocar tela</button>
+            <button id="stop-btn" class="btn small danger"><span data-icon="stop"></span>Parar</button>
+          </div>
+        </div>
+        <div class="quality">
+          <label class="field"><span>Resolução</span><select id="q-resolution"></select></label>
+          <label class="field"><span>Quadros/s (FPS)</span><select id="q-fps"></select></label>
+          <label class="field"><span>Bitrate máximo</span><select id="q-bitrate"></select></label>
+          <label class="field"><span>Otimizar para</span><select id="q-optimize"></select></label>
+          <label class="field wide"><span>Codec de vídeo</span><select id="q-codec"></select></label>
+        </div>
+        <p id="bitrate-hint" class="hint"></p>
+        <label class="check" id="anti-echo-row">
+          <input type="checkbox" id="anti-echo" checked>
+          <span>Silenciar o som dos outros enquanto eu transmito com som <em>(evita eco)</em></span>
+        </label>
+        <div id="outgoing" class="outgoing"></div>
+      </section>
+    </aside>
+  </div>
+
+  <!-- Escolha do que transmitir -->
+  <dialog id="picker" class="picker">
+    <header class="picker-head">
+      <h2>O que você quer transmitir?</h2>
+      <button id="picker-close" class="icon-btn" title="Fechar" data-icon="x"></button>
+    </header>
+    <div class="picker-tabs" role="tablist">
+      <button class="tab active" data-tab="screen" role="tab">Telas inteiras</button>
+      <button class="tab" data-tab="window" role="tab">Janelas</button>
+      <button id="picker-refresh" class="btn small ghost"><span data-icon="refresh"></span>Atualizar</button>
+    </div>
+    <div id="source-grid" class="source-grid"></div>
+    <footer class="picker-foot">
+      <div id="audio-row" class="audio-row">
+        <label class="check">
+          <input type="checkbox" id="share-audio" checked>
+          <span>Transmitir som</span>
+        </label>
+        <select id="audio-mode" aria-label="De onde vem o som"></select>
+        <button id="exclude-toggle" class="btn small ghost" type="button"></button>
+      </div>
+      <div id="exclude-editor" class="exclude-editor" hidden>
+        <label class="field">
+          <span>Apps cujo som nunca entra na transmissão <em>(um por linha, nome do programa, ex.: Discord.exe)</em></span>
+          <textarea id="exclude-list" rows="6" spellcheck="false"></textarea>
+        </label>
+        <button id="exclude-reset" class="btn small ghost" type="button">Restaurar a lista padrão</button>
+      </div>
+      <div class="picker-actions">
+        <p id="audio-hint" class="hint"></p>
+        <span class="spacer"></span>
+        <button id="picker-cancel" class="btn ghost">Cancelar</button>
+        <button id="picker-start" class="btn primary" disabled>Transmitir</button>
+      </div>
+    </footer>
+  </dialog>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+</body>
+</html>
