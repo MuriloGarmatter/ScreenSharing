@@ -1,0 +1,15 @@
+// Servidor de sinalização do Telão na Cloudflare: https://telao.xmbc.workers.dev
+// Publicar: npm install && npm run deploy (precisa de "npx wrangler login" uma vez).
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "telao",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  "preview_urls": false,
+  "durable_objects": {
+    "bindings": [{ "name": "LOBBY", "class_name": "Lobby" }]
+  },
+  // No plano grátis, só Durable Objects com SQLite.
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Lobby"] }]
+}

@@ -32,7 +32,7 @@ O som do **Discord não vai junto**, então ninguém ouve a própria voz de volt
 - [Como conseguir e abrir o Telão](#-como-conseguir-e-abrir-o-telão)
 - [Início rápido](#-início-rápido)
 - [Passo a passo](#-passo-a-passo)
-  - [1. Criar uma sala (quem hospeda)](#1-criar-uma-sala-quem-hospeda)
+  - [1. Criar uma sala](#1-criar-uma-sala)
   - [2. Entrar numa sala (os amigos)](#2-entrar-numa-sala-os-amigos)
   - [3. Transmitir a sua tela](#3-transmitir-a-sua-tela)
   - [4. Assistir a tela dos outros](#4-assistir-a-tela-dos-outros)
@@ -54,7 +54,8 @@ O som do **Discord não vai junto**, então ninguém ouve a própria voz de volt
 - **Vai com o som do computador, mas sem o som do Discord** e de outros apps de voz (TeamSpeak, Teams,
   Zoom, Skype, WhatsApp…). Ou só o som dos apps que você escolher.
 - **Convite com um clique:** quem cria a sala manda um link, e quem clica abre o Telão já na sala.
-- **Qualidade em um clique:** 🎮 Jogo · 🎬 Filme · 💻 Texto · 🐢 Internet fraca. Os ajustes finos
+  O link é **fixo**: a sala fica num servidor do Telão sempre ligado, então ninguém precisa hospedar.
+- **Qualidade em um clique:** Jogo · Filme · Texto · Internet fraca. Os ajustes finos
   (resolução, FPS, bitrate, codec) continuam lá e mudam **durante** a transmissão.
 - **Pesa pouco no jogo:** quando a placa de vídeo comprime o vídeo (H.264), o app usa ela sozinho.
 - **Várias pessoas podem transmitir ao mesmo tempo.** Dá para **destacar** uma tela, assistir numa
@@ -71,7 +72,7 @@ O som do **Discord não vai junto**, então ninguém ouve a própria voz de volt
 flowchart LR
     A["💻 Quem transmite"] -->|"imagem + som (direto, criptografado)"| B["💻 Amigo 1"]
     A -->|"imagem + som (direto, criptografado)"| C["💻 Amigo 2"]
-    S["📡 Sala (roda no PC de quem hospeda)"]
+    S["📡 Sala (no servidor do Telão ou no PC de quem hospeda)"]
     A -.->|"só para se encontrarem"| S
     B -.->|"só para se encontrarem"| S
     C -.->|"só para se encontrarem"| S
@@ -104,9 +105,13 @@ O Telão vem em dois sabores (~110 MB cada). Use **um** deles:
 | `Telao-Setup-<versão>.exe` | **Instalador (recomendado).** Cria atalho no menu Iniciar, abre mais rápido e faz o **convite clicável** funcionar sempre. |
 | `Telao-<versão>-portable.exe` | Não instala nada: é só abrir. O convite clicável funciona depois de abrir o portátil uma vez. Demora uns segundos para abrir. |
 
-Normalmente, **quem te convidou manda o arquivo** (por Google Drive, WeTransfer etc.). Se você tem
-acesso a este repositório no GitHub, também pode baixar na página de **Releases**, na parte **Assets**
-da versão mais recente. Ali, não baixe o "Source code": ele é o código, não o programa.
+Baixe na página de **Releases** deste repositório, na parte **Assets** da versão mais recente (ou peça
+o arquivo a quem te convidou). Ali, não baixe o "Source code": ele é o código, não o programa.
+
+**Atualizações:** a partir da 1.3, o Telão **instalado** se atualiza sozinho. Ele baixa a versão nova
+em segundo plano e mostra um aviso: clique em **Reiniciar e atualizar** (no aviso, no botão do alto ou
+no ícone da bandeja) ou só feche o Telão, que ela é instalada ao sair. O **portátil** não consegue se
+atualizar: ele só avisa que há versão nova e abre a página para baixar. Por isso, prefira o instalador.
 
 ### 2. Se o navegador avisar ao baixar
 
@@ -165,16 +170,15 @@ Troque o nome pelo arquivo que você baixou. Se o código for diferente, não ab
 
 **Quem cria a sala (só uma pessoa):**
 
-1. Abra o Telão, escolha **Criar sala** e digite seu nome. A sala já ganha um nome sozinha, mas você
-   pode trocar.
-2. Clique em **Criar sala e entrar**. Se o Windows perguntar sobre o Firewall, clique em **Permitir acesso**.
-3. **Só na primeira vez:** no painel **Convidar amigos**, em **Pela internet**, clique em
-   **Baixar e criar link** e espere o link aparecer.
-4. Clique no botão de copiar ao lado do link **Pela internet** e mande para os amigos no Discord ou no
-   WhatsApp. É um link comum, como `https://palavras-aleatorias.trycloudflare.com/sala-k3x9q2a`.
-   Se você pôs senha, mande a senha também.
-5. Espere uns 10 a 30 segundos antes de o pessoal entrar (o link demora um pouquinho para funcionar).
-   **Não feche o Telão** enquanto o pessoal estiver usando: isso encerra a sala.
+1. Abra o Telão, escolha **Criar sala** e digite seu nome. Dê um nome para a sala, como
+   `filme-sexta`, ou use o que o app sorteia.
+2. Deixe **Servidor do Telão** escolhido e clique em **Criar sala e entrar**.
+3. No painel **Convidar amigos**, copie o **Link fixo** (algo como
+   `https://telao.xmbc.workers.dev/filme-sexta`) e mande para os amigos no Discord ou no WhatsApp.
+
+O link **não muda**: da próxima vez, entre de novo na mesma sala e o mesmo link funciona. Dá para
+deixar ele fixado no canal do Discord. Ninguém precisa ficar hospedando: quem criou a sala pode sair e
+voltar à vontade.
 
 **Os amigos:**
 
@@ -191,22 +195,42 @@ Não abriu? Copiem o link e abram o Telão: aparece "**Você copiou um convite**
 
 ## 📖 Passo a passo
 
-### 1. Criar uma sala (quem hospeda)
-
-Uma pessoa do grupo "hospeda" a sala. O computador dela vira o ponto de encontro, e ela precisa
-**ficar com o Telão aberto** enquanto todos estiverem usando.
+### 1. Criar uma sala
 
 Na tela inicial, escolha **Criar sala** e preencha:
 
 | Campo | O que colocar |
 |---|---|
 | **Seu nome** | Como os outros vão te ver (até 32 letras). |
-| **Nome da sala** | O app já sorteia um difícil de adivinhar (como `sala-k3x9q2a`), mas você pode escrever outro, como `filme-sexta`. O botão 🔀 sorteia outro. Maiúsculas e minúsculas não importam. |
+| **Nome da sala** | O app já sorteia um difícil de adivinhar (como `sala-k3x9q2a`), mas você pode escrever outro, como `filme-sexta`. O botão 🔀 sorteia outro. Maiúsculas e minúsculas não importam. **Quem souber o nome entra**, então evite nomes óbvios como `teste`. |
+| **Onde fica a sala** | **Servidor do Telão** (recomendado) ou **Este computador**. Veja abaixo. |
+
+Clique em **Criar sala e entrar**.
+
+#### Servidor do Telão (recomendado)
+
+A sala fica num servidor do Telão na Cloudflare, sempre ligado. O convite é um **link fixo**, como
+`https://telao.xmbc.workers.dev/filme-sexta`:
+
+- O link **não muda**. Mande uma vez (ou fixe no canal do Discord) e use sempre.
+- **Ninguém precisa hospedar.** Qualquer pessoa pode sair e voltar, inclusive quem criou a sala, e a
+  sala continua para quem ficou.
+- Não baixa nada, não pede o Firewall e funciona de qualquer lugar.
+- **Qualquer pessoa na sala** pode copiar o link no painel **Convidar amigos**.
+- O servidor só apresenta as pessoas da sala umas às outras. A imagem e o som continuam indo **direto
+  entre os PCs**.
+
+#### Este computador
+
+O seu PC vira o ponto de encontro da sala, e você precisa **ficar com o Telão aberto** enquanto todos
+estiverem usando. Serve para jogar na mesma rede sem internet, ou se o servidor do Telão estiver fora
+do ar. Escolhendo esta opção, aparecem mais campos:
+
+| Campo | O que colocar |
+|---|---|
 | **Porta** | Deixe `47800`. Só mude se o app avisar que a porta já está em uso. |
 | **Senha** *(opcional)* | Se colocar, os amigos vão precisar dela. O app não guarda senhas: digite de novo a cada vez. |
 | **Criar link público pela internet** | Deixe **marcado** se algum amigo estiver em outra casa. |
-
-Clique em **Criar sala e entrar**.
 
 **Aviso do Firewall do Windows:** na primeira vez, o Windows pode perguntar se o Telão pode usar a
 rede. Clique em **Permitir acesso**. Sem isso, quem entra pela mesma rede (ou por VPN de jogos) não
@@ -249,7 +273,7 @@ Há três jeitos. Use o primeiro que funcionar:
 
 O app lembra seu nome, a sala e o convite para a próxima vez. As senhas ele não guarda.
 
-Dentro da sala, a lista **Participantes** mostra quem está lá e como está a conexão com cada um:
+Dentro da sala, a lista **Na sala** mostra quem está lá e como está a conexão com cada um:
 
 | Etiqueta | Significado |
 |---|---|
@@ -259,7 +283,7 @@ Dentro da sala, a lista **Participantes** mostra quem está lá e como está a c
 | `sinal ruim` | Conexão fraca: a imagem pode travar. Veja [A imagem trava](#a-imagem-trava-fica-pixelada-ou-atrasada). |
 | (no mouse) `retransmitida por um servidor TURN` | A conexão passa por um servidor intermediário (só existe se alguém configurou um). |
 | `falhou` | Não deu para conectar com essa pessoa. Veja [Problemas comuns](#participante-fica-em-conectando-ou-falhou). |
-| `AO VIVO` / `PAUSADO` | É você, transmitindo (ou com a transmissão pausada). |
+| `NO AR` / `PAUSADO` | É você, transmitindo (ou com a transmissão pausada). Quem está transmitindo tem um quadradinho aceso ao lado do nome. |
 
 ### 3. Transmitir a sua tela
 
@@ -282,9 +306,10 @@ No painel **Sua transmissão** (à direita) você encontra:
   **medidor de som**: a barra verde se mexe quando tem som saindo.
 - **Pausar / Retomar** (ou `Ctrl+Alt+P`): os outros veem uma tela preta e ouvem silêncio, com o aviso
   "pausou a transmissão". Use quando aparecer uma senha, notificação ou mensagem privada.
-- **Trocar:** muda o que está sendo transmitido, sem parar.
+- **Trocar tela:** muda o que está sendo transmitido, sem parar.
+- **NO AR:** enquanto você transmite, a lâmpada **NO AR** fica acesa no alto, com o tempo no ar ao lado.
 - **Parar** (ou **Parar transmissão** no alto, ou `Ctrl+Alt+T` de novo): encerra a sua transmissão.
-- **Qualidade em um clique:** 🎮 **Jogo** · 🎬 **Filme** · 💻 **Texto** · 🐢 **Internet fraca**. Os
+- **Qualidade em um clique:** **Jogo** · **Filme** · **Texto** · **Internet fraca** (a tecla escolhida fica acesa). Os
   **Ajustes finos** ficam logo abaixo ([explicação](#-qualidade-fps-e-internet)).
 - **Enviando para cada pessoa:** a resolução, o FPS, a velocidade e o sinal de cada amigo.
 
@@ -307,13 +332,25 @@ Passe o mouse sobre a tela de alguém para ver os controles:
 | Controle | O que faz |
 |---|---|
 | 🔊 e a barra de volume | Som dessa pessoa. O volume fica **lembrado** para a próxima vez. |
-| 📌 **Destacar** | Deixa essa tela grande e as outras pequenas, numa coluna ao lado. Clique de novo para desfazer. |
+| 📌 **Destacar** | Deixa essa tela grande e as outras pequenas, numa coluna ao lado. Clicar na imagem também destaca. Clique de novo no 📌 para desfazer. |
+| 👁️ **Parar de assistir** | Para de receber essa transmissão (imagem e som). Economiza processador e internet **dos dois lados**: quem transmite para de comprimir para você. Para voltar, clique em **Assistir de novo**. |
 | **Janelinha flutuante** | Abre a tela numa janelinha que fica **por cima de todos os programas**. É ótima para assistir um amigo enquanto você joga. Dá para mover e mudar o tamanho. |
 | ⓘ | Mostra os detalhes: resolução, FPS, velocidade, codec, pacotes perdidos e o atraso. |
 | ⛶ | Tela cheia. **Dois cliques** na imagem também abrem e fecham a tela cheia. `Esc` sai. |
 | 😂 🔥 👏 😮 ❤️ 👍 | **Reações:** aparecem flutuando para todo mundo, inclusive para quem está transmitindo. |
 
 No canto de cada tela aparece o **sinal** da transmissão que chega até você (ótimo, bom ou ruim).
+
+Quer as telas maiores? O botão de **painel** no alto (ao lado do sininho) esconde a coluna da direita e o multivisor fica com a janela toda. Clique de novo para trazer o painel de volta; o Telão lembra a sua escolha.
+
+Para pesar menos no PC, o Telão também se ajusta sozinho:
+
+- **Tela pequena, imagem menor.** Cada tela chega no tamanho em que aparece para você: as pequenas
+  (como as da coluna do destaque) vêm em 360p ou 540p, e a grande e a tela cheia vêm completas. Quem
+  transmite comprime menos e você descomprime menos, sem diferença visível.
+- **Telão escondido, só o som.** Minimizado ou coberto pelo jogo por mais de 5 segundos, o Telão para
+  de receber a imagem das transmissões. O som continua, e a imagem volta na hora em que você abre a
+  janela. A **janelinha flutuante** continua recebendo normalmente.
 
 Enquanto você assiste ou transmite, o Telão impede que o monitor apague sozinho.
 
@@ -325,9 +362,9 @@ Enquanto você assiste ou transmite, o Telão impede que o monitor apague sozinh
   uma **bolinha vermelha**, e o ícone na barra de tarefas também. Clique com o botão direito para
   **Pausar**, **Parar** ou **Sair** sem precisar abrir a janela.
 - **Cores:** clique no botão de **paleta** 🎨 (na tela inicial e no alto da sala). Escolha o **tema**
-  (Escuro, Claro ou Igual ao Windows) e a **cor de destaque** (9 cores prontas ou **Outra cor…**).
+  (Escuro, Claro ou Igual ao Windows) e a **cor de destaque** (9 cores prontas ou **Outra cor…**). Ela é a "luz de no ar" do app: as teclas acesas, quem está transmitindo e a tela em destaque.
   O app ajusta a cor do texto dos botões sozinho para continuar legível. **Restaurar o padrão** volta
-  para tema escuro com azul.
+  para tema escuro com vermelho.
 
 ---
 
@@ -400,13 +437,14 @@ O jeito mais fácil é usar os botões de **qualidade em um clique** no painel *
 
 | Botão | Resolução | FPS | Otimizar para | Bitrate | Para quê |
 |---|---|---|---|---|---|
-| 🎮 **Jogo** | 1080p | 60 | Movimento | Automático | Jogos e tudo que mexe rápido |
-| 🎬 **Filme** | 1080p | 30 | Movimento | Automático | YouTube e vídeos (é o padrão) |
-| 💻 **Texto** | Nativa | 15 | Nitidez | Automático | Código, planilhas, textos |
-| 🐢 **Internet fraca** | 720p | 30 | Movimento | 3 Mb/s | Quando a internet não ajuda |
+| **Jogo** | 1080p | 60 | Movimento | Automático | Jogos e tudo que mexe rápido |
+| **Filme** | 1080p | 30 | Movimento | Automático | YouTube e vídeos (é o padrão) |
+| **Texto** | Nativa | 15 | Nitidez | Automático | Código, planilhas, textos |
+| **Internet fraca** | 720p | 30 | Movimento | 3 Mb/s | Quando a internet não ajuda |
 
-Todos usam o codec **Automático**, que escolhe o **H.264 na placa de vídeo** quando ela dá suporte
-(aparece "Automático (placa de vídeo)"). Assim a compressão quase não pesa no processador nem no jogo.
+Todos usam o codec **Automático**, que é o **H.264**. Quem assiste descomprime na placa de vídeo (quase
+todo PC faz isso), e quem transmite comprime na placa quando ela tem suporte (aparece "Automático (H.264
+na placa de vídeo)"). Assim a transmissão quase não pesa no processador nem no jogo.
 
 Em **Ajustes finos** dá para mexer em cada coisa. Vale só para a **sua** transmissão: mude antes de
 começar ou durante, e quem assiste vê a mudança em segundos. Se você mudar algo, aparece
@@ -438,7 +476,7 @@ Valores máximos com bitrate **automático** em "Movimento":
 - Telas paradas (texto, área de trabalho) gastam bem menos que o máximo.
 - Para saber seu upload, faça um teste em [fast.com](https://fast.com) e abra os detalhes do
   resultado (o upload aparece lá).
-- Se o seu upload for menor que o total da tabela, use 🐢 **Internet fraca** ou diminua a resolução,
+- Se o seu upload for menor que o total da tabela, use **Internet fraca** ou diminua a resolução,
   o FPS ou o bitrate. Senão a imagem trava e fica pixelada para todo mundo.
 
 ### Lendo os painéis
@@ -452,6 +490,10 @@ exemplo, `1920×1080 · 30 fps · 5,8 Mb/s · H264 (GPU)`. Se aparecer:
   sugestão, troque o codec para **H.264** ou diminua a resolução/FPS.
 - **Limitado pelo navegador:** o próprio motor de vídeo segurou a qualidade por outro motivo. Em geral
   passa sozinho. Se não passar, diminua a resolução.
+- **(tela pequena lá)** depois da resolução: o amigo mostra a sua tela pequena, então vai uma imagem
+  menor para ele (e menos trabalho para o seu PC).
+- **parou de assistir** ou **Telão escondido: só o som**: nada de imagem é comprimido para essa
+  pessoa até ela voltar a olhar.
 
 **Quem assiste**: o sinal no canto da tela e o **ⓘ** mostram o que está chegando. Quem assiste não
 muda a qualidade. Se estiver ruim, avise quem transmite.
@@ -464,10 +506,10 @@ O som vai em estéreo, com qualidade de música, seja qual for o ajuste de víde
 
 | Jeito | Quando usar | Como |
 |---|---|---|
-| **Link público (Cloudflare)** | O normal: amigos em outras casas. | Já vem marcado em "Criar sala". Grátis e sem configurar o roteador. |
-| **Mesma rede** | Todos na mesma casa/Wi-Fi. | Use o convite "Na mesma rede" da placa Wi-Fi ou Ethernet. |
-| **VPN de jogos** (Radmin VPN, ZeroTier, Tailscale…) | Se o link da Cloudflare não funcionar na rede de alguém. | Todos entram na mesma rede virtual. O convite com o IP da VPN aparece na lista "Na mesma rede" (no Radmin começa com `26.`, no Tailscale com `100.`). |
-| **Servidor fixo** | Para ter sempre o mesmo endereço, sem depender de alguém hospedar. | Veja "Servidor sempre ligado" em [Para desenvolvedores](#-para-desenvolvedores). |
+| **Servidor do Telão** (link fixo) | O normal: amigos em qualquer lugar. | Já vem escolhido em "Criar sala". Grátis, sempre o mesmo link, ninguém precisa hospedar. |
+| **Link público temporário (Cloudflare)** | Se o servidor do Telão estiver fora do ar. | "Criar sala" → **Este computador**, com "Criar link público" marcado. O link muda a cada vez. |
+| **Mesma rede** | Todos na mesma casa/Wi-Fi. | "Criar sala" → **Este computador**, e use o convite "Na mesma rede" da placa Wi-Fi ou Ethernet. |
+| **VPN de jogos** (Radmin VPN, ZeroTier, Tailscale…) | Se nada acima funcionar na rede de alguém. | Todos entram na mesma rede virtual. Com **Este computador**, o convite com o IP da VPN aparece na lista "Na mesma rede" (no Radmin começa com `26.`, no Tailscale com `100.`). |
 
 Lembre: o link e o servidor só servem para os PCs **se encontrarem**. Depois disso, a imagem e o
 som vão **direto** entre os computadores. Por isso, numa rede muito restrita (algumas redes de
@@ -487,7 +529,9 @@ empresa, faculdade ou 4G), a conexão direta pode falhar. Veja
   já tiver sido aberta pelo menos uma vez **neste PC**.
 - Ainda não abriu? Copie o link, abra o Telão e use o aviso "**Você copiou um convite**" → **Entrar**.
   Ou cole o link no campo **Convite**.
-- Se a página nem carregar, o link pode ter mudado (quem hospeda criou a sala de novo). Peça o novo.
+- **Ainda não tem o Telão?** A página do convite tem o link para baixar o instalador.
+- Se a página nem carregar e o link for do tipo `trycloudflare.com`, ele pode ter mudado (quem
+  hospeda criou a sala de novo). Peça o novo. O link fixo (`telao.xmbc.workers.dev`) não muda.
 
 ### Entrei, mas só apareço eu na sala
 
@@ -501,6 +545,12 @@ O Telão não avisa quando o nome da sala está diferente: ele simplesmente cria
 ### "Não foi possível conectar ao servidor" ou "O servidor não respondeu a tempo"
 
 - Copie o convite de novo, com o botão de copiar, e cole **inteiro**.
+- **Link fixo** (`telao.xmbc.workers.dev`): confira a sua internet e tente de novo em alguns
+  segundos. Se continuar, o servidor do Telão pode estar fora do ar: crie a sala com **Este
+  computador** enquanto isso.
+
+Se a sala foi criada em **Este computador**:
+
 - Quem hospeda está com o Telão aberto e **dentro da sala**?
 - O link pela internet **muda toda vez** que a sala é criada. Peça o convite novo.
 - Um link que acabou de ser criado pode levar **alguns segundos** para funcionar. Tente de novo em 10–30 segundos.
@@ -543,7 +593,7 @@ O Telão perdeu contato com a sala.
 
 - **Se foi só a internet de alguém oscilando**, o app reconecta sozinho em alguns segundos. As telas
   de quem caiu somem e depois voltam. As transmissões entre quem continuou conectado seguem rolando.
-- **Se quem hospeda fechou o Telão, saiu ou criou a sala de novo, ou se o link público caiu**, o
+- **Sala em Este computador: se quem hospeda fechou o Telão, saiu ou criou a sala de novo, ou se o link público caiu**, o
   endereço mudou, e o app vai ficar tentando o antigo. Depois de algumas tentativas ele avisa. Peça o
   convite novo e clique nele (ou clique em **Sair** e entre de novo).
 
@@ -620,12 +670,16 @@ A janelinha fica por cima de programas em janela e em **Janela sem bordas** (Bor
 ### A imagem trava, fica pixelada ou atrasada
 
 - **Quem transmite:** se aparecer a sugestão de um clique, aceite. Senão, em **Sua transmissão →
-  Enviando para cada pessoa**, veja se aparece "Limitado pela internet (banda)": use 🐢 **Internet
+  Enviando para cada pessoa**, veja se aparece "Limitado pela internet (banda)": use **Internet
   fraca** ou diminua o bitrate, a resolução ou o FPS ([tabela de upload](#quanto-de-internet-a-transmissão-usa)).
   Se aparece "Limitado pelo processador (CPU)", troque o codec para **H.264**. Prefira **cabo** a Wi-Fi.
 - **Quem assiste:** o sinal no canto da tela e o ⓘ mostram o FPS, a velocidade e os "pacotes
   perdidos". Se estiver ruim, avise quem transmite: só essa pessoa muda a qualidade.
 - Com muita gente assistindo, o upload de quem transmite se multiplica. Diminua a qualidade.
+- **O PC trava ao transmitir?** Em **Enviando para cada pessoa**, veja se aparece **(GPU)** ou
+  **(CPU)** ao lado do codec. Com **(CPU)**, cada pessoa assistindo é uma compressão inteira no
+  processador: o Telão já limita a 30 FPS com 2 ou mais pessoas, e quem não está olhando pode clicar
+  em 👁️ **Parar de assistir**.
 
 ### O link pela internet não aparece ou caiu
 
@@ -661,7 +715,7 @@ Pode. As telas aparecem lado a lado para todo mundo, e cada um pode **destacar**
 
 **Custa alguma coisa?**
 
-Não. O link da Cloudflare é gratuito, e a imagem vai direto entre os computadores.
+Não. O servidor do Telão e o link da Cloudflare são gratuitos, e a imagem vai direto entre os computadores.
 
 **Precisa de conta ou cadastro?**
 
@@ -690,14 +744,15 @@ Num deles, crie a sala. No outro, entre colando o convite **Na mesma rede**.
 - **A imagem, o som e as reações vão direto entre os computadores, criptografados**, no padrão WebRTC
   (DTLS-SRTP), o mesmo do Google Meet. Se um servidor TURN for usado, ele só repassa os dados
   criptografados.
-- **A sala** (no PC de quem hospeda) só vê os nomes, o nome da sala e os dados técnicos para os
-  PCs se conectarem. Ela não recebe imagem nem som.
-- **O link da Cloudflare** só repassa essa conversa de "apresentação" e a página do convite. A imagem e
-  o som não passam por ele.
+- **A sala** (no servidor do Telão ou no PC de quem hospeda) só vê os nomes, o nome da sala e os
+  dados técnicos para os PCs se conectarem. Ela não recebe imagem nem som. O servidor do Telão não
+  grava nada: os nomes ficam só na memória enquanto a pessoa está na sala.
+- **O link temporário da Cloudflare** (`trycloudflare.com`) só repassa essa conversa de
+  "apresentação" e a página do convite. A imagem e o som não passam por ele.
 - **Como em todo P2P, os participantes conseguem ver o endereço IP uns dos outros.** Use salas só com
   pessoas de confiança.
-- Quem tiver o convite consegue entrar. Para evitar estranhos, use um nome de sala difícil de
-  adivinhar (o 🔀 gera um) e/ou uma **senha**.
+- Quem tiver o convite (ou souber o nome da sala) consegue entrar. Para evitar estranhos, use um
+  nome de sala difícil de adivinhar (o 🔀 gera um). Em **Este computador** dá para pôr uma **senha**.
 - **Área de transferência:** quando você volta para a tela inicial do Telão, ele lê o texto copiado
   **só para ver se é um convite** e oferecer o botão **Entrar**. Nada sai do seu PC.
 - **Nada é gravado.** As configurações ficam só no seu PC, em `%APPDATA%\Telao`. As senhas não são guardadas.
@@ -741,6 +796,7 @@ protocolo `telao://` não é registrado, para não tomar o lugar do app instalad
 | `npm run test:e2e` | **Abre duas janelas do app** e testa tudo de ponta a ponta (~1 min, com tons). |
 | `npm run dist` | Gera `dist/Telao-<versão>-portable.exe` e `dist/Telao-Setup-<versão>.exe`. |
 | `npm run server` | Roda só o servidor de sinalização (porta 47800). |
+| `npm run test:server -- <ws(s)://…>` | Confere um servidor de sinalização de verdade pela rede (o do PC, o `wrangler dev` ou o publicado): salas, repasse, sala cheia, ping. Não abre o app. |
 
 `test:audio` e `test:e2e` precisam do auxiliar compilado: rode `npm start` ou `npm run build:audio` antes.
 `Ctrl + Shift + I` abre as ferramentas de desenvolvedor dentro do app.
@@ -754,8 +810,8 @@ flowchart TB
         MAIN["Processo principal (src/main)<br/>captura, servidor embutido, túnel, bandeja, atalhos, telao://"]
         HELPER["telao-audio.exe (native/)<br/>som por app via process loopback"]
     end
-    SIG["Servidor de sinalização (server/)<br/>WebSocket: salas + troca de SDP/ICE<br/>HTTP: página do convite"]
-    CF["Cloudflare Tunnel (opcional)"]
+    SIG["Servidor de sinalização<br/>worker/ na Cloudflare (link fixo) ou server/ no PC<br/>WebSocket: salas + troca de SDP/ICE<br/>HTTP: página do convite"]
+    CF["Cloudflare Tunnel (sala no PC, opcional)"]
     UI <--> MAIN
     MAIN --> HELPER
     UI <-->|"ws / wss"| SIG
@@ -765,8 +821,9 @@ flowchart TB
 
 - **Tela:** `desktopCapturer` + `setDisplayMediaRequestHandler` do Electron. A qualidade é ajustada
   com `applyConstraints` (resolução e FPS da captura) e `RTCRtpSender.setParameters`
-  (bitrate, FPS e codec por envio). "Automático" vira H.264 quando
-  `navigator.mediaCapabilities.encodingInfo` diz que a placa de vídeo comprime (`powerEfficient`).
+  (bitrate, FPS e codec por envio). "Automático" é H.264: quem assiste
+  decodifica na GPU (VP8 seria decodificado na CPU). `navigator.mediaCapabilities.encodingInfo`
+  (`powerEfficient`) só decide o rótulo e a sugestão de trocar de codec.
 - **P2P:** malha (mesh) com uma conexão por par de participantes, no padrão
   ["perfect negotiation"](https://developer.mozilla.org/docs/Web/API/WebRTC_API/Perfect_negotiation).
   Como cada pessoa tem a própria conexão, cada uma recebe a qualidade que a internet dela aguenta. O
@@ -779,7 +836,7 @@ flowchart TB
   (só os apps escolhidos) e `list`.
 - **Convites:** o convite é um link `http(s)://servidor/sala`. Aberto no navegador, o servidor mostra
   a página de `server/invite-page.js`, que leva para `telao://entrar/?convite=<link>`. O app registra o
-  protocolo (o instalador também, via `build.protocols`), usa `requestSingleInstanceLock` e repassa o
+  protocolo (o instalador também, via `build/installer.nsh`), usa `requestSingleInstanceLock` e repassa o
   convite para a janela aberta. O WebSocket usa o mesmo endereço e ignora o caminho; os nomes de sala
   não diferenciam maiúsculas.
 - **Aparência:** `src/renderer/theme.js` carrega antes da página, aplica o tema salvo e calcula as
@@ -794,17 +851,48 @@ src/main/          processo principal (janela, captura, servidor embutido, túne
                    aparência, bandeja, atalhos, links telao://)
 src/renderer/      interface e WebRTC (app.js, mesh.js, media.js, stats.js, address.js, theme.js,
                    sounds.js, app-audio.js, pcm-worklet.js)
-server/            servidor de sinalização e página do convite (embutidos no app ou sozinhos)
+server/            servidor de sinalização e página do convite (embutidos no app ou sozinhos);
+                   protocol.js é a parte dividida com o worker/
+worker/            o mesmo servidor na Cloudflare (Workers + Durable Objects): o link fixo
 native/            código do telao-audio.exe
 scripts/           ícones, compilação do auxiliar, inicialização
 test/              testes (unitários, áudio, ponta a ponta)
 ```
 
-### Servidor sempre ligado (opcional)
+### Servidor do Telão na Cloudflare (o link fixo)
 
-O servidor de sinalização é leve e pode rodar sozinho, num PC sempre ligado ou numa hospedagem.
-Assim o endereço nunca muda e ninguém precisa "hospedar". Ele só usa o pacote `ws` e roda com
-Node.js 18 ou mais novo. Ele também serve a página do convite.
+O "Servidor do Telão" é a pasta `worker/`: o mesmo protocolo do servidor do PC, rodando num
+Cloudflare Worker com um Durable Object (plano grátis). Ele fica em `https://telao.xmbc.workers.dev`,
+e o app aponta para ele em `PUBLIC_SERVER` (`src/renderer/address.js`).
+
+- **Todas as salas ficam num Durable Object só** ("lobby"). O app se conecta na raiz e diz a sala na
+  mensagem `join`, como no servidor do PC, então versões antigas do app também entram pelo link fixo.
+- O objeto **hiberna** entre mensagens (WebSocket Hibernation): cada participante fica guardado no
+  próprio WebSocket, não na memória. O app manda `"ping"` a cada 30 s, e a Cloudflare responde
+  `"pong"` sem acordar o objeto. Um alarme por minuto tira da sala quem parou de mandar há mais de
+  90 s (Wi-Fi caiu, PC hibernou). Versões sem o ping (até a 1.2) não são tiradas assim.
+- Nada é gravado e não há logs.
+
+Publicar uma versão nova do servidor:
+
+```bash
+cd worker
+npm install
+npx wrangler login          # só na primeira vez: abre o navegador para autorizar a conta
+npm run deploy
+cd ..
+npm run test:server -- wss://telao.xmbc.workers.dev
+```
+
+Para testar antes de publicar: `npm run dev` (na pasta `worker/`) e
+`npm run test:server -- ws://127.0.0.1:8787`. Senha e TURN funcionam como no servidor do PC, como
+*secrets* do Worker (`npx wrangler secret put SERVER_PASSWORD`, `CLOUDFLARE_TURN_KEY_ID`…).
+
+### Servidor sempre ligado em outro lugar (opcional)
+
+O servidor de sinalização também pode rodar sozinho com Node.js, num PC sempre ligado ou numa
+hospedagem. Ele só usa o pacote `ws` e roda com Node.js 20 ou mais novo. Ele também serve a página
+do convite.
 
 ```bash
 cd server
@@ -830,10 +918,21 @@ o pessoal entrar, abra `https://SEU-SERVICO.onrender.com` no navegador e espere 
 
 1. Aumente a `version` no `package.json`.
 2. Rode `npm run dist`.
-3. Crie a release com os dois `.exe`:
+3. Crie a release no repositório público com os dois `.exe`, o `.blockmap` e o `latest.yml`:
 
    ```bash
-   gh release create vX.Y.Z dist/Telao-X.Y.Z-portable.exe dist/Telao-Setup-X.Y.Z.exe
+   gh release create vX.Y.Z --title "Telão X.Y.Z" --notes-file notas.md \
+     dist/Telao-Setup-X.Y.Z.exe dist/Telao-Setup-X.Y.Z.exe.blockmap dist/latest.yml \
+     dist/Telao-X.Y.Z-portable.exe
    ```
+
+O `latest.yml` e o `.blockmap` são o que a atualização automática lê: sem eles, quem tem o Telão
+instalado não fica sabendo da versão nova. O app procura atualização 15 segundos depois de abrir e a
+cada 4 horas e só funciona na versão empacotada (com `npm start` ele não procura nada). A tag precisa
+ser `v` + a `version` do `package.json`.
+
+Publique como versão normal, não como *pre-release*: o link `releases/latest`, usado no botão
+"Baixar" do app e na página do convite, só enxerga versões normais. (O app também aceita
+*pre-releases*, se um dia quiser soltar uma versão de teste.)
 
 </details>

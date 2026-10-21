@@ -3,33 +3,44 @@
 // Usa o padrão "perfect negotiation" para que qualquer lado possa
 // (re)negociar a qualquer momento sem colisões.
 
-import { AUDIO_BITRATE, mungeRemoteSdp, pickCodec, startBitrateKbps, targetBitrate, videoConstraints } from './media.js';
+import {
+  AUDIO_BITRATE, mungeRemoteSdp, pickCodec, sendEncoding, startBitrateKbps, videoConstraints,
+} from './media.js';
 
 const CONNECT_TIMEOUT_MS = 10_000;
 const RECONNECT_DELAYS_MS = [1000, 2000, 4000, 8000, 15000];
+// "ping" ao servidor: mantém a conexão viva e mostra ao servidor que ainda estou
+// na sala (o da Cloudflare tira quem ficou mais de 90 s sem mandar).
+const KEEPALIVE_MS = 30_000;
 const ICE_RESTART_DELAYS_MS = [8000, 15000, 30000]; // conexão P2P que não sobe (o lado "polite" espera o dobro)
 const REACTION_WINDOW_MS = 2000;
 const REACTION_LIMIT = 8; // por pessoa, a cada 2 s
+const FULL_VIEW = { video: true, audio: true, height: 0 };
 
 export const REACTIONS = ['😂', '🔥', '👏', '😮', '❤️', '👍'];
+
+const sameView = (a, b) => Boolean(a && b) && a.video === b.video && a.audio === b.audio && a.height === b.height;
 
 export class Mesh extends EventTarget {
   #ws = null;
   #closed = false;
   #reconnectAttempt = 0;
   #reconnectTimer = null;
+  #keepaliveTimer = null;
 
-  constructor({ url, room, name, password }) {
+  constructor({ url, room, name, password, version }) {
     super();
     this.url = url;
     this.room = room;
     this.name = name;
     this.password = password || '';
+    this.version = version || '';
     this.id = null;
     this.iceServers = [];
+    this.serverFeatures = []; // o que o servidor da sala sabe fazer (ex.: 'version')
     this.peers = new Map();
     this.share = null; // { stream, videoTrack, audioTrack, settings }
-    this.state = { sharing: false };
+    this.state = { sharing: false, version: this.version };
     this.serverConnected = false;
   }
 
@@ -41,6 +52,7 @@ export class Mesh extends EventTarget {
   leave() {
     this.#closed = true;
     clearTimeout(this.#reconnectTimer);
+    clearInterval(this.#keepaliveTimer);
     for (const id of [...this.peers.keys()]) this.#removePeer(id, true);
     const ws = this.#ws;
     this.#ws = null;
@@ -73,6 +85,27 @@ export class Mesh extends EventTarget {
     share.videoTrack.enabled = !paused;
     if (share.audioTrack) share.audioTrack.enabled = !paused;
     this.setState({ ...this.state, paused });
+  }
+
+  /**
+   * O que eu quero receber de uma pessoa: { video, audio, height }. Parar de
+   * assistir = sem vídeo e sem som; Telão escondido = só o som; height = a altura
+   * em que mostro a tela dela (0 = cheia). Só manda se mudou; se o canal ainda
+   * não abriu, manda quando abrir.
+   */
+  setView(peerId, view) {
+    const peer = this.peers.get(peerId);
+    if (!peer) return;
+    const next = { video: view.video !== false, audio: view.audio !== false, height: view.height || 0 };
+    if (sameView(peer.wantedView, next)) return;
+    peer.wantedView = next;
+    this.#sendView(peer);
+  }
+
+  #sendView(peer) {
+    if (peer.channel?.readyState === 'open' && peer.wantedView) {
+      peer.channel.send(JSON.stringify({ type: 'view', ...peer.wantedView }));
+    }
   }
 
   /** Envia uma reação a todos (o alvo é quem está transmitindo). */
@@ -119,7 +152,8 @@ export class Mesh extends EventTarget {
   }
 
   setState(state) {
-    this.state = { ...state };
+    // A versão vai junto em todo estado (quem está desatualizado aparece na lista).
+    this.state = { ...state, version: this.version };
     this.#send({ type: 'state', state: this.state });
   }
 
@@ -150,10 +184,15 @@ export class Mesh extends EventTarget {
 
       ws.onopen = () => {
         this.#send({ type: 'join', room: this.room, name: this.name, password: this.password, state: this.state });
+        clearInterval(this.#keepaliveTimer);
+        this.#keepaliveTimer = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) ws.send('ping');
+        }, KEEPALIVE_MS);
       };
       ws.onmessage = (event) => {
         let msg;
-        try { msg = JSON.parse(event.data); } catch { return; }
+        try { msg = JSON.parse(event.data); } catch { return; } // "pong" e outros textos soltos
+        if (!msg || typeof msg !== 'object') return;
         if (msg.type === 'welcome') {
           this.#onWelcome(msg);
           finish();
@@ -166,7 +205,10 @@ export class Mesh extends EventTarget {
         }
       };
       ws.onclose = () => {
-        if (this.#ws === ws) this.#ws = null;
+        if (this.#ws === ws) {
+          this.#ws = null;
+          clearInterval(this.#keepaliveTimer);
+        }
         if (!settled) {
           finish(new Error('Não foi possível conectar ao servidor. Confira o endereço e se ele está no ar.'));
         } else if (!this.#closed) {
@@ -216,6 +258,7 @@ export class Mesh extends EventTarget {
     for (const id of [...this.peers.keys()]) this.#removePeer(id, true);
     this.id = msg.id;
     this.iceServers = Array.isArray(msg.iceServers) ? msg.iceServers : [];
+    this.serverFeatures = Array.isArray(msg.features) ? msg.features : [];
     this.serverConnected = true;
     this.#reconnectAttempt = 0;
     for (const p of msg.peers || []) this.#addPeer(p, reconnected);
@@ -272,13 +315,17 @@ export class Mesh extends EventTarget {
       videoTx: null,
       audioTx: null,
       stats: null,
+      view: { ...FULL_VIEW }, // o que essa pessoa quer receber de mim
+      wantedView: null, // o que eu quero receber dela (ver setView)
     };
     this.peers.set(id, peer);
 
     // Canal de dados negociado dos dois lados: estabelece a conexão P2P logo
-    // ao entrar (a transmissão começa rápido) e leva as reações.
+    // ao entrar (a transmissão começa rápido) e leva as reações e o "o que eu
+    // quero receber" de cada um.
     peer.channel = pc.createDataChannel('telao', { negotiated: true, id: 0 });
     peer.channel.onmessage = (event) => this.#onPeerMessage(peer, event.data);
+    peer.channel.onopen = () => this.#sendView(peer);
 
     pc.onnegotiationneeded = async () => {
       // Na primeira negociação só o lado "impolite" oferece. Se os dois oferecessem
@@ -346,7 +393,26 @@ export class Mesh extends EventTarget {
     if (typeof data !== 'string' || data.length > 1000) return;
     let msg;
     try { msg = JSON.parse(data); } catch { return; }
-    if (msg?.type !== 'reaction' || !REACTIONS.includes(msg.emoji)) return;
+    if (msg?.type === 'view') this.#onView(peer, msg);
+    else if (msg?.type === 'reaction') this.#onReaction(peer, msg);
+  }
+
+  /** A pessoa avisou o que quer receber de mim (parou de assistir, só o som, tela pequena). */
+  #onView(peer, msg) {
+    const height = Number(msg.height);
+    const view = {
+      video: msg.video !== false,
+      audio: msg.audio !== false,
+      height: Number.isInteger(height) && height > 0 && height <= 4320 ? height : 0,
+    };
+    if (sameView(peer.view, view)) return;
+    peer.view = view;
+    if (this.share) this.#applyView(peer);
+    this.#emit('view', { peer });
+  }
+
+  #onReaction(peer, msg) {
+    if (!REACTIONS.includes(msg.emoji)) return;
     if (typeof msg.target !== 'string' || msg.target.length > 64) return;
     const now = Date.now();
     peer.reactionTimes = (peer.reactionTimes || []).filter((t) => now - t < REACTION_WINDOW_MS);
@@ -411,19 +477,36 @@ export class Mesh extends EventTarget {
       this.#deactivate(tx);
       return tx;
     }
+    // Para quem não quer (parou de assistir, ou só o som), o transceptor fica ativo
+    // mas sem a faixa: nada é comprimido nem enviado, e voltar não exige renegociar.
+    const sent = peer.view[kind] ? track : null;
     if (!tx) {
-      tx = peer.pc.addTransceiver(track, {
+      tx = peer.pc.addTransceiver(sent || kind, {
         direction: 'sendonly',
         streams: [stream],
-        sendEncodings: [this.#initialEncoding(kind)],
+        sendEncodings: [this.#initialEncoding(kind, peer)],
       });
     } else {
-      tx.sender.replaceTrack(track).catch((err) => console.warn('replaceTrack falhou:', err));
+      tx.sender.replaceTrack(sent).catch((err) => console.warn('replaceTrack falhou:', err));
       tx.sender.setStreams(stream);
       if (tx.direction !== 'sendonly') tx.direction = 'sendonly';
     }
     if (kind === 'video') this.#applyCodecPreferences(tx);
     return tx;
+  }
+
+  /** Aplica o que a pessoa quer receber: liga/desliga imagem e som e ajusta o tamanho. */
+  #applyView(peer) {
+    const share = this.share;
+    for (const [tx, track, kind] of [[peer.videoTx, share.videoTrack, 'video'], [peer.audioTx, share.audioTrack, 'audio']]) {
+      if (!tx || !track || tx.direction !== 'sendonly') continue;
+      const sent = peer.view[kind] ? track : null;
+      if (tx.sender.track === sent) continue;
+      tx.sender.replaceTrack(sent)
+        .then(() => this.#applySendParams(peer))
+        .catch((err) => console.warn('replaceTrack falhou:', err));
+    }
+    this.#applySendParams(peer);
   }
 
   #deactivate(tx) {
@@ -436,10 +519,10 @@ export class Mesh extends EventTarget {
     }
   }
 
-  #initialEncoding(kind) {
+  #initialEncoding(kind, peer) {
     if (kind === 'audio') return { maxBitrate: AUDIO_BITRATE };
     const { settings, videoTrack } = this.share;
-    return { maxBitrate: targetBitrate(settings, videoTrack.getSettings()), maxFramerate: settings.fps };
+    return { ...sendEncoding(settings, videoTrack.getSettings(), peer.view.height), maxFramerate: settings.fps };
   }
 
   #applyCodecPreferences(tx) {
@@ -479,7 +562,8 @@ export class Mesh extends EventTarget {
       const params = video.getParameters();
       if (params.encodings?.length) {
         const encoding = params.encodings[0];
-        encoding.maxBitrate = targetBitrate(share.settings, share.videoTrack.getSettings());
+        // Tamanho e bitrate sob medida para a tela em que essa pessoa mostra a minha.
+        Object.assign(encoding, sendEncoding(share.settings, share.videoTrack.getSettings(), peer.view.height));
         encoding.maxFramerate = share.settings.fps;
         const codec = pickCodec(params.codecs, share.settings.codec);
         if (codec) encoding.codec = codec;
@@ -490,7 +574,11 @@ export class Mesh extends EventTarget {
           if (!codec) throw err;
           // Versões do Chromium sem troca de codec por encoding: aplica o resto.
           const retry = video.getParameters();
-          Object.assign(retry.encodings[0], { maxBitrate: encoding.maxBitrate, maxFramerate: encoding.maxFramerate });
+          Object.assign(retry.encodings[0], {
+            maxBitrate: encoding.maxBitrate,
+            maxFramerate: encoding.maxFramerate,
+            scaleResolutionDownBy: encoding.scaleResolutionDownBy,
+          });
           delete retry.encodings[0].codec;
           await video.setParameters(retry);
         }

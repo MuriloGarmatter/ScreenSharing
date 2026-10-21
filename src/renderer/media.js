@@ -31,11 +31,17 @@ export const DEFAULT_SHARE_SETTINGS = { resolution: '1080p', fps: 30, bitrate: 0
 
 // Predefinições: um clique em vez de cinco menus.
 export const QUALITY_PRESETS = [
-  { id: 'game', emoji: '🎮', label: 'Jogo', settings: { resolution: '1080p', fps: 60, bitrate: 0, optimize: 'motion', codec: 'auto' } },
-  { id: 'movie', emoji: '🎬', label: 'Filme', settings: { resolution: '1080p', fps: 30, bitrate: 0, optimize: 'motion', codec: 'auto' } },
-  { id: 'text', emoji: '💻', label: 'Texto', settings: { resolution: 'native', fps: 15, bitrate: 0, optimize: 'detail', codec: 'auto' } },
-  { id: 'slow', emoji: '🐢', label: 'Internet fraca', settings: { resolution: '720p', fps: 30, bitrate: 3, optimize: 'motion', codec: 'auto' } },
+  { id: 'game', label: 'Jogo', use: 'Jogos e tudo que mexe rápido', settings: { resolution: '1080p', fps: 60, bitrate: 0, optimize: 'motion', codec: 'auto' } },
+  { id: 'movie', label: 'Filme', use: 'YouTube e vídeos (é o padrão)', settings: { resolution: '1080p', fps: 30, bitrate: 0, optimize: 'motion', codec: 'auto' } },
+  { id: 'text', label: 'Texto', use: 'Código, planilhas, textos', settings: { resolution: 'native', fps: 15, bitrate: 0, optimize: 'detail', codec: 'auto' } },
+  { id: 'slow', label: 'Internet fraca', use: 'Quando a internet não ajuda', settings: { resolution: '720p', fps: 30, bitrate: 3, optimize: 'motion', codec: 'auto' } },
 ];
+
+/** Resumo técnico de uma predefinição, como aparece na tecla: "1080p · 60 fps". */
+export function presetSpec(settings) {
+  const res = settings.resolution === 'native' ? 'Nativa' : settings.resolution;
+  return `${res} · ${settings.fps} fps${settings.bitrate ? ` · ${settings.bitrate} Mb/s` : ''}`;
+}
 
 /** Id da predefinição que corresponde aos ajustes, ou null ("personalizado"). */
 export function matchPreset(settings) {
@@ -61,9 +67,15 @@ export async function detectHardwareH264() {
   }
 }
 
-/** "Automático" vira H.264 quando a placa de vídeo dá conta; senão fica com o padrão. */
-export function resolveCodec(codec, hardwareH264) {
-  return codec === 'auto' && hardwareH264 ? 'H264' : codec;
+/**
+ * "Automático" é H.264. Quem assiste decodifica H.264 na placa de vídeo
+ * (praticamente todo PC faz isso; VP8 seria decodificado no processador, e
+ * cada transmissão assistida pesaria), e quem transmite codifica na placa
+ * quando ela tem codificador. Sem codificador, o H.264 por software pesa
+ * o mesmo que o VP8.
+ */
+export function resolveCodec(codec) {
+  return codec === 'auto' ? 'H264' : codec;
 }
 
 const RESOLUTION_STEPS = ['480p', '720p', '1080p', '1440p', 'native'];
@@ -74,7 +86,7 @@ const RESOLUTION_STEPS = ['480p', '720p', '1080p', '1440p', 'native'];
  */
 export function suggestLowerSettings(settings, reason, { hardwareH264 = false } = {}) {
   const next = { ...settings };
-  if (reason === 'cpu' && hardwareH264 && resolveCodec(settings.codec, hardwareH264) !== 'H264') {
+  if (reason === 'cpu' && hardwareH264 && resolveCodec(settings.codec) !== 'H264') {
     next.codec = 'H264';
     return { settings: next, text: 'Usar a placa de vídeo (H.264)' };
   }
@@ -134,6 +146,48 @@ export function targetBitrate(settings, trackSettings) {
   const bitsPerPixel = settings.optimize === 'detail' ? 0.08 : 0.1;
   const bps = width * height * settings.fps * bitsPerPixel;
   return Math.round(Math.min(Math.max(bps, MIN_AUTO_BITRATE), MAX_AUTO_BITRATE));
+}
+
+// ---------- Envio sob medida para cada pessoa ----------
+
+/** Alturas que quem assiste pode pedir (0 = resolução cheia). */
+export const VIEW_HEIGHTS = [360, 540, 720];
+const MIN_SCALED_BITRATE = 600_000;
+
+/**
+ * Altura que vale pedir para uma tela mostrada com `shown` pixels de altura
+ * (já multiplicados pela escala do Windows). Com folga de 15%; 0 = cheia.
+ */
+export function wantedHeight(shown) {
+  if (!Number.isFinite(shown) || shown <= 0) return 0;
+  return VIEW_HEIGHTS.find((h) => h >= shown * 1.15) || 0;
+}
+
+/** Quanto reduzir uma imagem de `height` linhas para quem pediu `wanted` (0 = cheia). */
+export function scaleForHeight(height, wanted) {
+  if (!wanted || !height || wanted >= height) return 1;
+  return Math.round((height / wanted) * 100) / 100;
+}
+
+/**
+ * Parâmetros do envio para uma pessoa: imagem reduzida ao tamanho em que ela
+ * mostra a tela e bitrate proporcional à área (menos trabalho para os dois PCs).
+ */
+export function sendEncoding(settings, trackSettings, wanted) {
+  const scale = scaleForHeight(trackSettings?.height, wanted);
+  const full = targetBitrate(settings, trackSettings);
+  const maxBitrate = scale > 1 ? Math.min(full, Math.max(MIN_SCALED_BITRATE, Math.round(full / (scale * scale)))) : full;
+  return { scaleResolutionDownBy: scale, maxBitrate };
+}
+
+/**
+ * FPS que vale de verdade. Sem compressão na placa de vídeo, cada pessoa assistindo
+ * é uma compressão inteira no processador: com 2 ou mais, 60 fps trava o PC, e
+ * a transmissão fica em 30 fps enquanto for assim.
+ */
+export function effectiveFps(settings, { hardware = false, viewers = 0 } = {}) {
+  const onGpu = hardware && resolveCodec(settings.codec) === 'H264';
+  return !onGpu && viewers >= 2 && settings.fps > 30 ? 30 : settings.fps;
 }
 
 /** Escolhe, entre os codecs negociados, o que corresponde à preferência. */

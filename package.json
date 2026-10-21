@@ -1,7 +1,7 @@
 {
   "name": "telao",
   "productName": "Telao",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "private": true,
   "description": "Compartilhamento de tela P2P com som, escolha de tela, resolução, FPS e bitrate.",
   "author": "Telao",
@@ -12,11 +12,13 @@
     "test": "node --test test/signaling.test.js test/units.test.mjs",
     "test:audio": "node test/app-audio.js",
     "test:e2e": "node test/e2e.js",
+    "test:server": "node test/server-smoke.js",
     "icon": "node scripts/make-icon.js",
     "build:audio": "node scripts/build-audio.js",
-    "dist": "node scripts/make-icon.js && node scripts/build-audio.js && electron-builder --win"
+    "dist": "node scripts/make-icon.js && node scripts/build-audio.js && electron-builder --win --publish never"
   },
   "dependencies": {
+    "electron-updater": "^6.8.9",
     "ws": "^8.22.0"
   },
   "devDependencies": {
@@ -30,6 +32,7 @@
     "files": [
       "src/**/*",
       "server/signaling.js",
+      "server/protocol.js",
       "server/invite-page.js",
       "package.json"
     ],

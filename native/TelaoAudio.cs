@@ -378,6 +378,7 @@ namespace TelaoAudio
     class Capture
     {
         const int AUDCLNT_STREAMFLAGS_LOOPBACK = 0x00020000;
+        const int BatchBytes = 48000 * 4 / 50; // 20 ms de 48 kHz, 16 bits, estéreo
         const int AUDCLNT_STREAMFLAGS_EVENTCALLBACK = 0x00040000;
         const int AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY = 0x08000000;
         const int AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM = unchecked((int)0x80000000);
@@ -468,6 +469,9 @@ namespace TelaoAudio
                 Output.Event("{\"event\":\"source\",\"id\":" + Id + ",\"pid\":" + Pid + ",\"name\":" + Output.Q(Name) + "}");
                 announced = true;
 
+                // Junta uns 20 ms antes de mandar: metade das mensagens para o Telão
+                // repassar à interface (o buffer de lá já espera 40 ms).
+                var pending = new MemoryStream();
                 while (running)
                 {
                     ready.WaitOne(50);
@@ -481,7 +485,12 @@ namespace TelaoAudio
                         var bytes = new byte[got * 4];
                         if ((flags & AUDCLNT_BUFFERFLAGS_SILENT) == 0 && got > 0) Marshal.Copy(data, bytes, 0, bytes.Length);
                         capture.ReleaseBuffer(got);
-                        if (got > 0) Output.Send(1, Id, bytes);
+                        pending.Write(bytes, 0, bytes.Length);
+                        if (pending.Length >= BatchBytes)
+                        {
+                            Output.Send(1, Id, pending.ToArray());
+                            pending.SetLength(0);
+                        }
                     }
                 }
                 client.Stop();
@@ -597,7 +606,7 @@ namespace TelaoAudio
                 {
                     Output.Event("{\"event\":\"warning\",\"message\":" + Output.Q("Falha ao listar os apps com som: " + ex.Message) + "}");
                 }
-                Thread.Sleep(1000);
+                Thread.Sleep(2000); // um app que começa a tocar entra em até 2 s
             }
         }
 
@@ -638,12 +647,23 @@ namespace TelaoAudio
             Output.Event("{\"event\":\"excluded\",\"pid\":" + info.Pid + ",\"name\":" + Output.Q(info.Name) + ",\"reason\":" + Output.Q(reason) + "}");
         }
 
+        static string lastSessions;
+        static int unchangedRounds;
+
         static void RefreshAll(bool onlyIncluded)
         {
+            // Os mesmos apps com sessão de som da última vez: nada a refazer (listar
+            // todos os processos do PC é a parte cara). Refaz a cada ~10 s mesmo assim.
+            var sessions = SessionPids();
+            var key = string.Join(",", sessions.OrderBy(p => p));
+            if (key == lastSessions && ++unchangedRounds < 5) return;
+            lastSessions = key;
+            unchangedRounds = 0;
+
             var map = Processes.Snapshot();
             var tainted = Tainted(map);
             var candidates = new HashSet<uint>();
-            foreach (var pid in SessionPids())
+            foreach (var pid in sessions)
             {
                 ProcInfo info;
                 if (!map.TryGetValue(pid, out info)) continue;

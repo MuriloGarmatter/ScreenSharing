@@ -74,6 +74,13 @@ test('entrar, ver os outros, repassar sinal e estado, sair', async () => {
     const st = await b.next('peer-state');
     assert.deepEqual(st.state, { sharing: true, paused: false, audio: true, label: 'Tela 2' });
 
+    // A versão do Telão de cada um passa adiante (só no formato 1.2.3); o welcome avisa que dá.
+    assert.ok(wb.features.includes('version'));
+    a.send({ type: 'state', state: { sharing: false, version: '1.3.0' } });
+    assert.equal((await b.next('peer-state')).state.version, '1.3.0');
+    a.send({ type: 'state', state: { sharing: false, version: '<script>' } });
+    assert.equal((await b.next('peer-state')).state.version, undefined);
+
     // Salas são isoladas: alguém em outra sala não vê nem recebe nada.
     const c = await connect(srv.url);
     c.send({ type: 'join', room: 'outra', name: 'Carol' });

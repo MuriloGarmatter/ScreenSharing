@@ -1,8 +1,9 @@
 'use strict';
 
-// Gera os ícones do app sem dependências: um monitor branco com botão "play"
-// sobre um quadrado arredondado em degradê azul→roxo, mais as variações da
-// bandeja (normal e "ao vivo", com bolinha vermelha) e o selo da barra de tarefas.
+// Gera os ícones do app sem dependências, com o símbolo da interface: um monitor do
+// multivisor com a faixa de rótulo e o tally, sobre um quadrado grafite. No ícone do
+// app a faixa fica acesa no vermelho de "no ar"; na bandeja ela fica apagada e acende
+// quando há transmissão. O selo da barra de tarefas é a lâmpada de "no ar".
 // Saídas: build/icon.png (electron-builder) e src/renderer/assets/*.png.
 
 const fs = require('node:fs');
@@ -17,40 +18,29 @@ function sdRoundRect(px, py, cx, cy, hw, hh, r) {
   return Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - r;
 }
 
-// Triângulo equilátero apontando para a direita (fórmula de Inigo Quilez).
-function sdPlay(px, py, cx, cy, r) {
-  const k = Math.sqrt(3);
-  let x = Math.abs(py - cy) - r;
-  let y = (px - cx) + r / k;
-  if (x + k * y > 0) [x, y] = [(x - k * y) / 2, (-k * x - y) / 2];
-  x -= Math.min(Math.max(x, -2 * r), 0);
-  return -Math.hypot(x, y) * Math.sign(y);
-}
-
 const WHITE = [255, 255, 255];
-const RED = [229, 57, 53];
+const GRAPHITE = [22, 23, 26]; // --panel do tema escuro
+const FRAME = [236, 238, 241]; // --text do tema escuro
+const TALLY = [217, 43, 38]; // vermelho de "no ar" (cor de destaque padrão)
+const OFF = [93, 97, 104]; // lâmpada apagada
 
-// Desenhos no espaço 0..48 (o mesmo do logo SVG da interface).
-function logo(px, py, { live = false } = {}) {
-  if (live) {
-    const d = Math.hypot(px - 38, py - 10);
-    if (d <= 8) return RED;
-    if (d <= 11) return WHITE;
-  }
-  if (sdRoundRect(px, py, 24, 24, 24, 24, 12) > 0) return null;
-  const t = (px + py) / 96;
-  const bg = [59 + (139 - 59) * t, 130 + (92 - 130) * t, 246];
-  const screenRing = Math.abs(sdRoundRect(px, py, 24, 21, 14, 9.5, 3.5)) - 1.5;
-  const neck = sdRoundRect(px, py, 24, 33.5, 1.5, 2.5, 0);
-  const base = sdRoundRect(px, py, 24, 37, 7, 1.5, 1.5);
-  const play = sdPlay(px, py, 24.3, 21, 4.2);
-  return Math.min(screenRing, neck, base, play) <= 0 ? WHITE : bg;
+// Desenhos no espaço 0..48. lit = faixa de rótulo e tally acesos; bold = traço mais
+// grosso para os tamanhos pequenos da bandeja (16 e 32 px).
+function logo(px, py, { lit = true, bold = false } = {}) {
+  if (sdRoundRect(px, py, 24, 24, 24, 24, 9) > 0) return null;
+  const stroke = bold ? 2.3 : 1.7;
+  const frame = Math.abs(sdRoundRect(px, py, 24, 20.5, 14.5, 10, 1.5)) - stroke;
+  if (frame <= 0) return FRAME;
+  const strip = sdRoundRect(px, py, 24, 36, 14.5 + stroke, bold ? 3 : 2.4, 0.8);
+  const tally = sdRoundRect(px, py, 15.5, 15, bold ? 2.6 : 2.2, bold ? 2.6 : 2.2, 0.4);
+  if (strip <= 0 || tally <= 0) return lit ? TALLY : OFF;
+  return GRAPHITE;
 }
 
+// O selo sobre o ícone da barra de tarefas: a lâmpada de "no ar", quadrada.
 function badge(px, py) {
-  const d = Math.hypot(px - 24, py - 24);
-  if (d <= 17) return RED;
-  if (d <= 22) return WHITE;
+  if (sdRoundRect(px, py, 24, 24, 14, 14, 3) <= 0) return TALLY;
+  if (sdRoundRect(px, py, 24, 24, 19, 19, 5) <= 0) return WHITE;
   return null;
 }
 
@@ -100,6 +90,10 @@ function chunk(type, data) {
   return Buffer.concat([len, body, crc]);
 }
 
+// Procedência gravada em cada PNG (bloco tEXt "impeccable:prompt"): de onde a imagem veio.
+const PROVENANCE = Buffer.from('impeccable:prompt\0Origin: drawn in code by scripts/make-icon.js '
+  + '(Telao mark: multiviewer monitor with label strip and tally on a graphite tile; no generated or sourced imagery)', 'latin1');
+
 function encodePng(size, rgba) {
   const header = Buffer.alloc(13);
   header.writeUInt32BE(size, 0);
@@ -113,6 +107,7 @@ function encodePng(size, rgba) {
   return Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     chunk('IHDR', header),
+    chunk('tEXt', PROVENANCE),
     chunk('IDAT', zlib.deflateSync(raw, { level: 9 })),
     chunk('IEND', Buffer.alloc(0)),
   ]);
@@ -123,10 +118,10 @@ const assets = path.join(root, 'src', 'renderer', 'assets');
 const outputs = [
   [path.join(root, 'build', 'icon.png'), 256, (x, y) => logo(x, y)],
   [path.join(assets, 'icon.png'), 256, (x, y) => logo(x, y)],
-  [path.join(assets, 'tray.png'), 16, (x, y) => logo(x, y)],
-  [path.join(assets, 'tray@2x.png'), 32, (x, y) => logo(x, y)],
-  [path.join(assets, 'tray-live.png'), 16, (x, y) => logo(x, y, { live: true })],
-  [path.join(assets, 'tray-live@2x.png'), 32, (x, y) => logo(x, y, { live: true })],
+  [path.join(assets, 'tray.png'), 16, (x, y) => logo(x, y, { lit: false, bold: true })],
+  [path.join(assets, 'tray@2x.png'), 32, (x, y) => logo(x, y, { lit: false, bold: true })],
+  [path.join(assets, 'tray-live.png'), 16, (x, y) => logo(x, y, { bold: true })],
+  [path.join(assets, 'tray-live@2x.png'), 32, (x, y) => logo(x, y, { bold: true })],
   [path.join(assets, 'live-badge.png'), 16, badge],
   [path.join(assets, 'live-badge@2x.png'), 32, badge],
 ];

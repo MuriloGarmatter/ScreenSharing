@@ -10,17 +10,52 @@
   <script type="module" src="app.js"></script>
 </head>
 <body>
-  <!-- Entrada -->
+  <!-- Entrada: a mesma mesa da sala, ainda sem sessão. -->
   <main id="join-view" class="join">
-    <form id="join-form" class="join-card" novalidate>
-      <header class="brand">
+    <header class="topbar">
+      <div class="topbar-left">
         <span class="logo" data-icon="logo"></span>
-        <div>
-          <h1>Telão</h1>
-          <p>Compartilhe a tela com som, direto entre os computadores.</p>
-        </div>
+        <strong class="wordmark">Telão</strong>
+      </div>
+      <div class="topbar-right">
         <button type="button" class="icon-btn" data-open-appearance title="Aparência: tema e cores" aria-label="Aparência: tema e cores" data-icon="palette"></button>
-      </header>
+      </div>
+    </header>
+
+    <!-- A ficha da sessão (como a claquete antes de ir ao ar): mostra, enquanto você
+         preenche, o que vai acontecer ao clicar em Entrar/Criar. -->
+    <section class="join-stage" aria-label="Resumo da sessão">
+      <div class="idle-monitor">
+        <div class="idle-screen">
+          <div class="slate">
+            <p id="slate-mode" class="slate-mode">Entrar com convite</p>
+            <p id="slate-room" class="slate-room">Sala do convite</p>
+            <dl class="slate-rows">
+              <div><dt>Você</dt><dd id="slate-name">—</dd></div>
+              <div><dt>Conexão</dt><dd id="slate-link">—</dd></div>
+            </dl>
+          </div>
+          <ul class="idle-specs" aria-label="O que o Telão faz">
+            <li><strong>1080p · 60 fps</strong><span>sem pagar nada</span></li>
+            <li><strong>Som por app</strong><span>a call do Discord fica de fora</span></li>
+            <li><strong>Direto entre os PCs</strong><span>sem servidor no meio</span></li>
+          </ul>
+        </div>
+        <div class="umd"><span class="tally" aria-hidden="true"></span><span class="umd-name">Aguardando sessão</span><span id="slate-version" class="umd-meta"></span></div>
+      </div>
+    </section>
+
+    <form id="join-form" class="join-card" novalidate>
+      <h1 class="join-title">Entre ou crie uma sala</h1>
+
+      <div id="update-banner" class="update-banner" role="status" hidden>
+        <span class="update-icon" data-icon="download"></span>
+        <div class="update-text">
+          <strong id="update-title"></strong>
+          <span id="update-detail"></span>
+        </div>
+        <button type="button" id="update-apply" class="btn small"></button>
+      </div>
 
       <div id="clipboard-invite" class="clipboard-invite" role="status" hidden>
         <span class="clipboard-icon" data-icon="link"></span>
@@ -32,19 +67,14 @@
         <button type="button" id="clipboard-dismiss" class="icon-btn small" title="Ignorar" aria-label="Ignorar este convite" data-icon="x"></button>
       </div>
 
-      <div class="mode-choice" role="radiogroup" aria-label="O que você quer fazer?">
-        <input type="radio" name="mode" id="mode-join" value="join" checked>
-        <label for="mode-join">
-          <span class="choice-icon" data-icon="link"></span>
-          <strong>Entrar com convite</strong>
-          <small>Alguém criou a sala e te mandou o link</small>
-        </label>
-        <input type="radio" name="mode" id="mode-host" value="host">
-        <label for="mode-host">
-          <span class="choice-icon" data-icon="plus"></span>
-          <strong>Criar sala</strong>
-          <small>Você hospeda e convida os amigos</small>
-        </label>
+      <div class="mode-choice-wrap">
+        <div class="mode-choice" role="radiogroup" aria-label="O que você quer fazer?" aria-describedby="mode-desc">
+          <input type="radio" name="mode" id="mode-join" value="join" checked>
+          <label for="mode-join">Entrar com convite</label>
+          <input type="radio" name="mode" id="mode-host" value="host">
+          <label for="mode-host">Criar sala</label>
+        </div>
+        <p id="mode-desc" class="hint">Alguém criou a sala e te mandou o link.</p>
       </div>
 
       <label class="field">
@@ -55,7 +85,7 @@
       <div id="join-fields" class="mode-fields">
         <label class="field">
           <span>Convite <em>(o link que você recebeu)</em></span>
-          <input id="server-url" placeholder="https://xxxx.trycloudflare.com/nome-da-sala" autocomplete="off" spellcheck="false">
+          <input id="server-url" placeholder="https://telao.xmbc.workers.dev/nome-da-sala" autocomplete="off" spellcheck="false">
         </label>
         <!-- O campo Sala é colocado aqui (ou em "Criar sala") pelo app.js. -->
         <div class="field" id="room-field">
@@ -72,34 +102,47 @@
       </div>
 
       <div id="host-fields" class="mode-fields" hidden>
-        <div class="field-row">
-          <label class="field port">
-            <span>Porta</span>
-            <input id="host-port" type="number" min="1024" max="65535" value="47800">
-          </label>
-          <label class="field grow">
-            <span>Senha <em>(opcional)</em></span>
-            <input id="host-password" type="password" autocomplete="off">
-          </label>
-        </div>
-        <label class="check">
-          <input type="checkbox" id="host-tunnel" checked>
-          <span>Criar link público pela internet <em>(Cloudflare Tunnel: grátis e sem abrir portas no roteador)</em></span>
-        </label>
-        <details class="advanced">
-          <summary>Avançado: servidor TURN</summary>
-          <div class="advanced-body">
-            <p class="hint">Opcional. Ajuda quando a conexão direta entre dois PCs falha (redes muito restritas). É repassado para todos da sala.</p>
-            <label class="field">
-              <span>URLs TURN <em>(separadas por vírgula)</em></span>
-              <input id="turn-urls" placeholder="turn:meu.servidor:3478" autocomplete="off" spellcheck="false">
-            </label>
-            <div class="field-row">
-              <label class="field grow"><span>Usuário</span><input id="turn-username" autocomplete="off"></label>
-              <label class="field grow"><span>Senha</span><input id="turn-credential" type="password" autocomplete="off"></label>
-            </div>
+        <!-- O campo Sala entra aqui, antes de "Onde fica a sala". -->
+        <div class="field">
+          <span class="field-label" id="host-where-label">Onde fica a sala</span>
+          <div class="segmented" role="radiogroup" aria-labelledby="host-where-label" aria-describedby="host-where-desc">
+            <input type="radio" name="host-where" id="host-cloud" value="cloud" checked>
+            <label for="host-cloud">Servidor do Telão</label>
+            <input type="radio" name="host-where" id="host-pc" value="pc">
+            <label for="host-pc">Este computador</label>
           </div>
-        </details>
+          <p id="host-where-desc" class="hint">Link fixo: mande uma vez e use sempre. Ninguém precisa deixar o PC hospedando.</p>
+        </div>
+        <div id="host-pc-fields" class="mode-fields" hidden>
+          <div class="field-row">
+            <label class="field port">
+              <span>Porta</span>
+              <input id="host-port" type="number" min="1024" max="65535" value="47800">
+            </label>
+            <label class="field grow">
+              <span>Senha <em>(opcional)</em></span>
+              <input id="host-password" type="password" autocomplete="off">
+            </label>
+          </div>
+          <label class="check">
+            <input type="checkbox" id="host-tunnel" checked>
+            <span>Criar link público pela internet <em>(grátis, sem abrir portas no roteador)</em></span>
+          </label>
+          <details class="advanced">
+            <summary>Avançado: servidor TURN</summary>
+            <div class="advanced-body">
+              <p class="hint">Opcional. Ajuda quando a conexão direta entre dois PCs falha (redes muito restritas). É repassado para todos da sala.</p>
+              <label class="field">
+                <span>URLs TURN <em>(separadas por vírgula)</em></span>
+                <input id="turn-urls" placeholder="turn:meu.servidor:3478" autocomplete="off" spellcheck="false">
+              </label>
+              <div class="field-row">
+                <label class="field grow"><span>Usuário</span><input id="turn-username" autocomplete="off"></label>
+                <label class="field grow"><span>Senha</span><input id="turn-credential" type="password" autocomplete="off"></label>
+              </div>
+            </div>
+          </details>
+        </div>
       </div>
 
       <p id="join-error" class="error" role="alert" hidden></p>
@@ -111,51 +154,56 @@
   <div id="room-view" class="room" hidden>
     <header class="topbar">
       <div class="topbar-left">
-        <span class="logo small" data-icon="logo"></span>
-        <strong>Telão</strong>
-        <span class="sep">/</span>
+        <span class="logo" data-icon="logo"></span>
+        <strong class="wordmark">Telão</strong>
+        <span class="sep" aria-hidden="true"></span>
         <span id="room-title" class="room-title"></span>
         <span id="server-status" class="pill ok">conectado</span>
       </div>
       <div class="topbar-right">
+        <!-- Sempre à vista: apagada fora do ar, acende quando você transmite. -->
+        <div id="on-air" class="on-air off" title="Você não está transmitindo">
+          <span id="on-air-lamp" class="on-air-lamp">No ar</span>
+          <span id="on-air-time" class="timecode">--:--:--</span>
+        </div>
+        <button id="update-btn" class="btn small" aria-label="Atualizar o Telão" hidden><span data-icon="download"></span><span class="label">Atualizar</span></button>
+        <button id="console-btn" class="icon-btn" aria-pressed="true" aria-controls="console" data-icon="sidebar"></button>
         <button id="sounds-btn" class="icon-btn" aria-pressed="true"></button>
         <button class="icon-btn" data-open-appearance title="Aparência: tema e cores" aria-label="Aparência: tema e cores" data-icon="palette"></button>
         <button id="share-btn" class="btn primary"></button>
-        <button id="leave-btn" class="btn ghost"><span data-icon="logout"></span>Sair</button>
+        <button id="leave-btn" class="btn ghost" title="Sair da sala" aria-label="Sair da sala"><span data-icon="logout"></span><span class="label">Sair</span></button>
       </div>
     </header>
 
     <section id="stage" class="stage">
+      <!-- Ninguém no ar: um monitor do multivisor sem sinal. -->
       <div id="empty-stage" class="empty">
-        <span class="empty-icon" data-icon="monitor"></span>
-        <h2>Ninguém está transmitindo</h2>
-        <p>Quando alguém compartilhar a tela, ela aparece aqui. Clique em <strong>Compartilhar tela</strong> para transmitir a sua.</p>
+        <div class="empty-screen">
+          <h2>Ninguém está transmitindo</h2>
+          <p>Quando alguém compartilhar a tela, ela aparece aqui. Clique em <strong>Compartilhar tela</strong> para transmitir a sua.</p>
+        </div>
+        <div class="umd"><span class="tally" aria-hidden="true"></span><span class="umd-name">Sem sinal</span></div>
       </div>
       <div id="tiles" class="tiles"></div>
     </section>
 
-    <aside class="sidebar">
-      <section id="invite-panel" class="panel" hidden>
-        <h3>Convidar amigos</h3>
-        <div id="invite-lan" class="invite-group"></div>
-        <div id="invite-internet" class="invite-group"></div>
-        <p class="hint">Mande o link: quem clicar nele abre o Telão já na sala <strong id="invite-room"></strong>. Se você pôs senha, mande a senha também.</p>
-      </section>
-
+    <aside id="console" class="sidebar">
       <section class="panel">
-        <h3>Participantes <span id="participant-count" class="count"></span></h3>
+        <h3>Na sala <span id="participant-count" class="count"></span></h3>
         <ul id="participants" class="participants"></ul>
       </section>
 
       <section class="panel" id="share-panel">
         <h3>Sua transmissão</h3>
         <div id="share-live" class="share-live" hidden>
-          <div class="preview-wrap">
-            <video id="local-preview" muted playsinline autoplay></video>
-            <div id="preview-paused" class="paused-overlay" hidden><span data-icon="pause"></span>Pausada: os outros veem uma tela preta</div>
-            <div id="preview-reactions" class="reactions-layer" aria-live="polite"></div>
+          <div class="preview-monitor">
+            <div class="preview-wrap">
+              <video id="local-preview" muted playsinline autoplay></video>
+              <div id="preview-paused" class="paused-overlay" hidden><span data-icon="pause"></span>Pausada: os outros veem uma tela preta</div>
+              <div id="preview-reactions" class="reactions-layer" aria-live="polite"></div>
+            </div>
+            <div class="share-live-info umd"><span class="tally" aria-hidden="true"></span><span class="umd-name">Saída</span><span id="share-source"></span></div>
           </div>
-          <div class="share-live-info"><span class="live-dot"></span><span id="share-source"></span></div>
           <div id="share-audio-info" class="share-audio">
             <div class="meter" title="Nível do som que está sendo transmitido"><span id="share-meter"></span></div>
             <p id="share-audio-text" class="hint"></p>
@@ -175,7 +223,7 @@
         </div>
         <div id="presets" class="presets" role="group" aria-label="Qualidade da transmissão"></div>
         <details class="advanced quality-advanced" id="quality-advanced">
-          <summary>Ajustes finos <span id="preset-custom" class="pill" hidden>personalizado</span></summary>
+          <summary>Ajustes finos <span id="preset-custom" class="tag" hidden>personalizado</span></summary>
           <div class="quality">
             <label class="field"><span>Resolução</span><select id="q-resolution"></select></label>
             <label class="field"><span>Quadros/s (FPS)</span><select id="q-fps"></select></label>
@@ -194,7 +242,18 @@
           <input type="checkbox" id="anti-echo" checked>
           <span>Silenciar o som dos outros enquanto eu transmito com som <em>(evita eco)</em></span>
         </label>
-        <div id="outgoing" class="outgoing"></div>
+        <!-- Números de cada envio: diagnóstico, fica recolhido. -->
+        <details id="outgoing-details" class="advanced outgoing-details" hidden>
+          <summary>Envio para cada pessoa <span id="outgoing-summary" class="count"></span></summary>
+          <div id="outgoing" class="outgoing"></div>
+        </details>
+      </section>
+
+      <section id="invite-panel" class="panel" hidden>
+        <h3>Convidar amigos</h3>
+        <div id="invite-lan" class="invite-group"></div>
+        <div id="invite-internet" class="invite-group"></div>
+        <p id="invite-hint" class="hint"></p>
       </section>
     </aside>
   </div>
@@ -263,7 +322,7 @@
         </div>
       </div>
       <div class="appearance-group">
-        <span class="field-label" id="accent-label">Cor de destaque</span>
+        <span class="field-label" id="accent-label">Cor de destaque <em>(a luz de “no ar”: teclas acesas, quem está transmitindo, a tela em destaque)</em></span>
         <div id="accent-swatches" class="swatches" role="group" aria-labelledby="accent-label"></div>
         <label class="custom-color" id="accent-custom-label">
           <input type="color" id="accent-custom" aria-label="Escolher outra cor">

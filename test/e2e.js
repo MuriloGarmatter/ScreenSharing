@@ -2,14 +2,15 @@
 
 // Teste de ponta a ponta: ABRE DUAS JANELAS DO APP neste PC e toca dois tons
 // baixinhos (por ~1 minuto).
-//   - "Alice" hospeda a sala e "Bob" entra pelo endereço da rede.
+//   - "Alice" hospeda a sala e "Bob" entra pelo endereço da rede. Com "cloud",
+//     Alice cria a sala no servidor do Telão e Bob entra colando o link fixo.
 //   - Uma janela com animação garante movimento na tela (para medir o FPS).
 //   - ToneApp.exe toca 440 Hz e FakeDiscord.exe toca 880 Hz (no papel do Discord).
 //   - Alice transmite a tela em 720p/30 com "todos os apps, menos os excluídos"
 //     e FakeDiscord.exe na lista de excluídos.
 //   - Bob confere resolução, FPS e o espectro do som: 440 Hz chega, 880 Hz não.
 //   - Alice muda para 480p/10 e H.264 ao vivo; Bob também transmite; Alice para.
-// Uso: npm run test:e2e   (E2E_SCREENSHOTS=pasta para salvar capturas de tela)
+// Uso: npm run test:e2e [-- cloud]   (E2E_SCREENSHOTS=pasta para salvar capturas de tela)
 
 const path = require('node:path');
 const fs = require('node:fs');
@@ -22,6 +23,7 @@ const { _electron: electron } = require('playwright-core');
 const APP_DIR = path.join(__dirname, '..');
 const PORT = 47999;
 const ROOM = `e2e-${Date.now().toString(36)}`;
+const CLOUD = process.argv.includes('cloud');
 const SHOTS = process.env.E2E_SCREENSHOTS || '';
 const CSC = path.join(process.env.WINDIR || 'C:\\Windows', 'Microsoft.NET', 'Framework64', 'v4.0.30319', 'csc.exe');
 
@@ -53,6 +55,21 @@ function startToneApps() {
     for (const p of procs) p.kill();
     setTimeout(() => fs.rmSync(dir, { recursive: true, force: true }), 1000);
   };
+}
+
+/**
+ * Põe as janelas lado a lado na tela principal. Uma janela totalmente coberta
+ * pela outra fica "escondida" para o Chromium: o Telão pausa o vídeo dela (de
+ * propósito, para poupar CPU) e a medição de FPS para.
+ */
+async function tile(instances) {
+  for (const [index, { app }] of instances.entries()) {
+    await app.evaluate(({ BrowserWindow, screen }, i) => {
+      const { x, y, width, height } = screen.getPrimaryDisplay().workArea;
+      const w = Math.max(960, Math.floor(width / 2));
+      BrowserWindow.getAllWindows()[0].setBounds({ x: i ? x + width - w : x, y, width: w, height });
+    }, index);
+  }
 }
 
 /** Janela sempre visível com animação contínua, na tela principal. */
@@ -131,24 +148,40 @@ async function step(name, fn) {
   const a = await launch('e2e-a');
   const b = await launch('e2e-b');
   try {
-    await step('Alice hospeda a sala', async () => {
+    await tile([a, b]);
+    let invite = '';
+    await step(CLOUD ? 'Alice cria a sala no servidor do Telão' : 'Alice hospeda a sala', async () => {
       await a.page.fill('#name', 'Alice');
-      await a.page.fill('#room', ROOM);
       await a.page.click('label[for="mode-host"]');
-      await a.page.fill('#host-port', String(PORT));
-      await a.page.uncheck('#host-tunnel');
+      await a.page.fill('#room', ROOM);
+      if (CLOUD) {
+        await a.page.click('label[for="host-cloud"]');
+      } else {
+        await a.page.click('label[for="host-pc"]');
+        await a.page.fill('#host-port', String(PORT));
+        await a.page.uncheck('#host-tunnel');
+      }
       await shot(a.page, '01-entrada-hospedar');
       await a.page.click('#join-btn');
-      await a.page.waitForSelector('#room-view:not([hidden])', { timeout: 10_000 });
+      await a.page.waitForSelector('#room-view:not([hidden])', { timeout: 15_000 });
+      if (CLOUD) {
+        invite = (await a.page.textContent('#invite-internet code')).trim();
+        assert.equal(invite, `https://telao.xmbc.workers.dev/${ROOM}`);
+      }
     });
 
-    await step('Bob entra pelo endereço da rede', async () => {
+    await step(CLOUD ? 'Bob entra colando o link fixo' : 'Bob entra pelo endereço da rede', async () => {
       await b.page.fill('#name', 'Bob');
-      await b.page.fill('#room', ROOM);
       await b.page.click('label[for="mode-join"]');
-      await b.page.fill('#server-url', `127.0.0.1:${PORT}`);
+      if (CLOUD) {
+        await b.page.fill('#server-url', invite);
+        assert.equal(await b.page.inputValue('#room'), ROOM, 'a sala vem do convite');
+      } else {
+        await b.page.fill('#room', ROOM);
+        await b.page.fill('#server-url', `127.0.0.1:${PORT}`);
+      }
       await b.page.click('#join-btn');
-      await b.page.waitForSelector('#room-view:not([hidden])', { timeout: 10_000 });
+      await b.page.waitForSelector('#room-view:not([hidden])', { timeout: 15_000 });
     });
 
     await step('conexão P2P estabelecida dos dois lados', async () => {

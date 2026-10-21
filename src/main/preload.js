@@ -5,7 +5,10 @@ const { contextBridge, ipcRenderer } = require('electron');
 // API mínima exposta à interface (a página não tem acesso ao Node).
 contextBridge.exposeInMainWorld('telao', {
   appInfo: () => ipcRenderer.invoke('app:info'),
-  listSources: (options) => ipcRenderer.invoke('sources:list', { thumbnails: options?.thumbnails !== false }),
+  listSources: (options) => ipcRenderer.invoke('sources:list', {
+    thumbnails: options?.thumbnails !== false,
+    windowThumbnails: options?.windowThumbnails === true,
+  }),
   selectSource: (sourceId, withAudio) => ipcRenderer.invoke('sources:select', sourceId, withAudio),
   startServer: (options) => ipcRenderer.invoke('server:start', options),
   stopServer: () => ipcRenderer.invoke('server:stop'),
@@ -28,4 +31,7 @@ contextBridge.exposeInMainWorld('telao', {
   setAppearance: (options) => ipcRenderer.invoke('appearance:set', options),
   copyText: (text) => ipcRenderer.invoke('clipboard:write', text),
   keepAwake: (on) => ipcRenderer.invoke('power:keep-awake', on === true),
+  getUpdateStatus: () => ipcRenderer.invoke('update:status'),
+  onUpdateStatus: (callback) => ipcRenderer.on('update:status', (_event, status) => callback(status)),
+  installUpdate: () => ipcRenderer.invoke('update:install'),
 });

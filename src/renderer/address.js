@@ -1,11 +1,16 @@
 // Endereços de servidor e convites.
 // O convite é um link normal, clicável no Discord e no WhatsApp, com o nome da
-// sala no fim: https://xxxx.trycloudflare.com/sala-k3x9q2a (ou http://IP:porta/sala
-// na rede local). Aberto no navegador, o servidor da sala mostra uma página com o
-// botão "Abrir no Telão", que usa o link telao://entrar/?convite=<convite>.
+// sala no fim: https://telao.xmbc.workers.dev/filme-sexta (o link fixo, no
+// servidor do Telão na Cloudflare), https://xxxx.trycloudflare.com/sala-k3x9q2a
+// (sala hospedada num PC) ou http://IP:porta/sala na rede local. Aberto no
+// navegador, o servidor mostra uma página com o botão "Abrir no Telão", que usa
+// o link telao://entrar/?convite=<convite>.
 
 export const DEFAULT_PORT = 47800;
 export const DEEP_LINK_PREFIX = 'telao://entrar/?convite=';
+// Servidor do Telão (worker/): sempre ligado, então o convite não muda nunca.
+export const PUBLIC_SERVER = 'wss://telao.xmbc.workers.dev';
+const PUBLIC_HOST = new URL(PUBLIC_SERVER).host;
 
 /**
  * Aceita "192.168.0.10", "192.168.0.10:47800", "http(s)://…" ou "ws(s)://…",
@@ -69,12 +74,14 @@ export function parseDeepLink(link) {
   return parsed?.room ? { ...parsed, invite } : null;
 }
 
-// Endereços que só aparecem em convites do Telão: o túnel da Cloudflare, IP (ou
-// localhost) com porta na rede local, ou ws(s)://. O endereço de um servidor
-// próprio continua funcionando colado no campo; só não vira a faixa automática.
+// Endereços que só aparecem em convites do Telão: o servidor do Telão, o túnel da
+// Cloudflare, IP (ou localhost) com porta na rede local, ou ws(s)://. O endereço
+// de um servidor próprio continua funcionando colado no campo; só não vira a
+// faixa automática.
 function isInviteHost(url) {
   if (url.protocol === 'ws:' || url.protocol === 'wss:') return true;
   const host = url.hostname.toLowerCase();
+  if (url.protocol === 'https:' && host === PUBLIC_HOST) return true;
   if (/^[a-z0-9-]+\.trycloudflare\.com$/.test(host)) return true;
   return Boolean(url.port) && (host === 'localhost' || /^\d{1,3}(\.\d{1,3}){3}$/.test(host));
 }

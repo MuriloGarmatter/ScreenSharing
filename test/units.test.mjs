@@ -4,18 +4,23 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import {
-  QUALITY_PRESETS, matchPreset, mungeRemoteSdp, pickCodec, resolveCodec, startBitrateKbps,
-  suggestLowerSettings, targetBitrate, videoConstraints,
+  QUALITY_PRESETS, effectiveFps, matchPreset, mungeRemoteSdp, pickCodec, resolveCodec, scaleForHeight,
+  sendEncoding, startBitrateKbps, suggestLowerSettings, targetBitrate, videoConstraints, wantedHeight,
 } from '../src/renderer/media.js';
 import {
-  deepLinkFor, inviteLink, parseDeepLink, parseInviteText, parseServerAddress,
+  PUBLIC_SERVER, deepLinkFor, inviteLink, parseDeepLink, parseInviteText, parseServerAddress,
 } from '../src/renderer/address.js';
 import { levelFrom, limitReason, peerSignal } from '../src/renderer/stats.js';
+import { bestColumns } from '../src/renderer/layout.js';
+import { compareVersions, outdatedPeers } from '../src/renderer/version.js';
+import { Lobby } from '../worker/src/index.js';
 
 const require = createRequire(import.meta.url);
 const { createFrameParser, helperArgs, normalizeExeName } = require('../src/main/app-audio.js');
 const { findDeepLink } = require('../src/main/deeplink.js');
-const { handleHttpRequest, inviteFromRequest } = require('../server/invite-page.js');
+const { handleHttpRequest, httpResponse, inviteFor } = require('../server/invite-page.js');
+
+const escapeAttr = (value) => value.replace(/&/g, '&amp;');
 
 // theme.js é um script clássico: ao ser carregado, publica globalThis.TelaoTheme.
 await import('../src/renderer/theme.js');
@@ -203,6 +208,11 @@ test('convite copiado: reconhece links de convite e ignora outros textos', () =>
   assert.equal(parseInviteText('(https://abc-def.trycloudflare.com/filme)').room, 'filme');
   assert.equal(parseInviteText('vê isso https://youtu.be/abc e entra https://a-b.trycloudflare.com/sala-2').room, 'sala-2');
   assert.equal(parseInviteText('wss://meu-servidor.com.br/sala').url, 'wss://meu-servidor.com.br');
+  // O link fixo do servidor do Telão.
+  const fixed = parseInviteText('bora: https://telao.xmbc.workers.dev/filme-sexta');
+  assert.equal(fixed.url, PUBLIC_SERVER);
+  assert.equal(fixed.room, 'filme-sexta');
+  assert.equal(inviteLink(PUBLIC_SERVER, 'filme sexta'), 'https://telao.xmbc.workers.dev/filme%20sexta');
   for (const text of [
     '', 'oi, tudo bem?', 'https://www.youtube.com/', 'https://site.com/a/b/c', 'senha123', 'x'.repeat(400),
     // Links de um segmento só que não são do Telão (o que mais aparece copiado).
@@ -210,6 +220,9 @@ test('convite copiado: reconhece links de convite e ignora outros textos', () =>
     'https://www.twitch.tv/gaules', 'https://x.com/fulano', 'https://github.com/fulano',
     'http://192.168.0.1/login', 'https://abc.trycloudflare.com/sala?x=1', 'https://abc.trycloudflare.com/a/b',
     'https://abc.trycloudflare.com/', 'https://user:senha@abc.trycloudflare.com/sala',
+    // Outros sites do workers.dev não são o Telão; http:// também não é o link fixo.
+    'https://outro.xmbc.workers.dev/sala', 'https://telao.outra.workers.dev/sala', 'http://telao.xmbc.workers.dev/sala',
+    'https://telao.xmbc.workers.dev/', 'https://telao.xmbc.workers.dev/a/b',
   ]) {
     assert.equal(parseInviteText(text), null, `não é convite: ${text.slice(0, 50)}`);
   }
@@ -223,12 +236,25 @@ test('link telao:// na linha de comando', () => {
 
 test('página do convite: monta o link certo e escapa o que vem da URL', () => {
   const req = (url, headers = {}) => ({ url, method: 'GET', headers: { host: 'abc-def.trycloudflare.com', ...headers } });
-  const via = inviteFromRequest(req('/filme-sexta', { 'x-forwarded-proto': 'https' }));
+  const via = inviteFor({ host: 'abc-def.trycloudflare.com', scheme: 'https', url: '/filme-sexta' });
   assert.equal(via.invite, 'https://abc-def.trycloudflare.com/filme-sexta');
   assert.equal(via.deepLink, deepLinkFor(via.invite));
-  assert.equal(inviteFromRequest(req('/sala', { host: '192.168.0.10:47800' })).invite, 'http://192.168.0.10:47800/sala');
-  assert.equal(inviteFromRequest(req('/sala', { host: 'evil.com"><script>' })), null, 'host inválido');
-  assert.equal(inviteFromRequest(req('/a/b')), null, 'sala com barra não é convite');
+  assert.equal(inviteFor({ host: '192.168.0.10:47800', scheme: 'http', url: '/sala' }).invite, 'http://192.168.0.10:47800/sala');
+  assert.equal(inviteFor({ host: 'evil.com"><script>', scheme: 'http', url: '/sala' }), null, 'host inválido');
+  assert.equal(inviteFor({ host: 'abc-def.trycloudflare.com', scheme: 'http', url: '/a/b' }), null, 'sala com barra não é convite');
+  // No servidor da Cloudflare a URL chega completa.
+  const cloud = httpResponse({ method: 'GET', url: 'https://telao.xmbc.workers.dev/Filme%20Sexta', host: 'telao.xmbc.workers.dev', scheme: 'https' });
+  assert.equal(cloud.status, 200);
+  assert.ok(cloud.body.includes(escapeAttr(deepLinkFor('https://telao.xmbc.workers.dev/Filme%20Sexta'))));
+  assert.ok(cloud.body.includes('releases/latest'), 'quem não tem o app acha onde baixar');
+  assert.equal(httpResponse({ method: 'HEAD', url: '/sala', host: 'x.trycloudflare.com', scheme: 'https' }).body, undefined);
+  assert.equal(httpResponse({ method: 'POST', url: '/sala', host: 'x.trycloudflare.com', scheme: 'https' }).status, 405);
+  // Atrás do túnel, o servidor do PC monta o convite com https.
+  const tunneled = { headers: {} };
+  handleHttpRequest(req('/filme-sexta', { 'x-forwarded-proto': 'https' }), {
+    writeHead: () => {}, end: (body) => { tunneled.body = String(body); },
+  });
+  assert.ok(tunneled.body.includes(escapeAttr(deepLinkFor('https://abc-def.trycloudflare.com/filme-sexta'))));
 
   const render = (url) => {
     const out = { status: 0, headers: {}, body: '' };
@@ -248,13 +274,79 @@ test('página do convite: monta o link certo e escapa o que vem da URL', () => {
   assert.ok(render('/robots.txt').body.includes('Disallow: /'));
 });
 
+test('servidor da Cloudflare: salas, repasse e faxina de quem caiu', async () => {
+  // WebSockets e Durable Object de mentira, com o que o Lobby usa da API.
+  const socket = () => ({
+    readyState: 1, sent: [], attachment: null, closedWith: null,
+    send(text) { this.sent.push(JSON.parse(text)); },
+    close(code) { this.closedWith = code; this.readyState = 3; },
+    serializeAttachment(value) { this.attachment = structuredClone(value); },
+    deserializeAttachment() { return structuredClone(this.attachment); },
+  });
+  const sockets = [];
+  const pings = new Map();
+  let alarm = null;
+  const ctx = {
+    getWebSockets: () => sockets,
+    getWebSocketAutoResponseTimestamp: (ws) => pings.get(ws) ?? null,
+    storage: { getAlarm: async () => alarm, setAlarm: async (time) => { alarm = time; } },
+  };
+  const lobby = new Lobby(ctx, {});
+  const join = async (room, name) => {
+    const ws = socket();
+    sockets.push(ws);
+    await lobby.webSocketMessage(ws, JSON.stringify({ type: 'join', room, name, state: { version: '1.3.0' } }));
+    return ws;
+  };
+  const last = (ws) => ws.sent.at(-1);
+
+  const ana = await join('Filme', 'Ana');
+  const bia = await join('filme', 'Bia');
+  const caio = await join('outra', 'Caio');
+  assert.equal(last(bia).type, 'welcome');
+  assert.deepEqual(last(bia).peers.map((p) => p.name), ['Ana'], 'só quem está na mesma sala');
+  assert.equal(last(ana).type, 'peer-joined');
+  assert.equal(caio.sent.length, 1, 'outra sala não fica sabendo');
+  assert.ok(alarm !== null, 'faxina agendada');
+
+  await lobby.webSocketMessage(ana, JSON.stringify({ type: 'signal', to: bia.attachment.id, data: { x: 1 } }));
+  assert.deepEqual(last(bia), { type: 'signal', from: ana.attachment.id, data: { x: 1 } });
+  await lobby.webSocketMessage(ana, JSON.stringify({ type: 'signal', to: caio.attachment.id, data: { x: 1 } }));
+  assert.equal(caio.sent.length, 1, 'sinal não atravessa salas');
+  await lobby.webSocketMessage(bia, JSON.stringify({ type: 'state', state: { sharing: true, label: 'Jogo' } }));
+  assert.equal(last(ana).type, 'peer-state');
+  assert.equal(bia.attachment.state.sharing, true, 'estado guardado no WebSocket (sobrevive à hibernação)');
+  await lobby.webSocketMessage(bia, 'pong');
+  await lobby.webSocketMessage(bia, JSON.stringify(null));
+
+  // Bia mandou "ping" há 2 min e sumiu; Ana nunca mandou (versão antiga): fica.
+  const biaId = bia.attachment.id;
+  pings.set(bia, new Date(Date.now() - 120_000));
+  pings.set(caio, new Date());
+  await lobby.alarm();
+  assert.equal(bia.closedWith, 4000);
+  assert.deepEqual(last(ana), { type: 'peer-left', id: biaId });
+  assert.equal(ana.closedWith, null);
+  assert.equal(caio.closedWith, null);
+  assert.ok(alarm > Date.now(), 'faxina continua enquanto há gente');
+
+  // Fechar a conexão avisa quem fica, uma vez só.
+  const before = caio.sent.length;
+  const dani = await join('outra', 'Dani');
+  lobby.webSocketClose(dani);
+  lobby.webSocketError(dani);
+  assert.equal(caio.sent.length - before, 2, 'peer-joined e um peer-left');
+  assert.equal(last(caio).type, 'peer-left');
+});
+
 test('predefinições de qualidade e H.264 automático', () => {
   assert.equal(matchPreset(QUALITY_PRESETS.find((p) => p.id === 'game').settings), 'game');
   assert.equal(matchPreset({ resolution: '1080p', fps: 30, bitrate: 0, optimize: 'motion', codec: 'auto' }), 'movie');
   assert.equal(matchPreset({ resolution: '1080p', fps: 45, bitrate: 0, optimize: 'motion', codec: 'auto' }), null);
-  assert.equal(resolveCodec('auto', true), 'H264');
-  assert.equal(resolveCodec('auto', false), 'auto');
-  assert.equal(resolveCodec('VP9', true), 'VP9');
+  // "Automático" é sempre H.264: quem assiste decodifica na placa de vídeo.
+  assert.equal(resolveCodec('auto'), 'H264');
+  assert.equal(resolveCodec('VP9'), 'VP9');
+  assert.equal(resolveCodec('VP8'), 'VP8');
 });
 
 test('sugestão de um clique quando a internet ou o processador não dão conta', () => {
@@ -272,6 +364,55 @@ test('sugestão de um clique quando a internet ou o processador não dão conta'
   assert.equal(suggestLowerSettings({ ...game, resolution: 'native', fps: 30 }, 'cpu').settings.resolution, '1080p');
   assert.equal(suggestLowerSettings({ ...game, resolution: '720p', fps: 30 }, 'bandwidth').settings.bitrate, 2);
   assert.equal(suggestLowerSettings({ ...game, resolution: '480p', fps: 15, bitrate: 2 }, 'bandwidth'), null);
+});
+
+test('envio sob medida: a altura em que a tela aparece decide o tamanho enviado', () => {
+  // Tela pequena (coluna do destaque, ~140 px) pede 360p; grade média, 540p/720p; grande ou tela cheia, a cheia.
+  assert.equal(wantedHeight(140), 360);
+  assert.equal(wantedHeight(400), 540);
+  assert.equal(wantedHeight(600), 720);
+  assert.equal(wantedHeight(700), 0);
+  assert.equal(wantedHeight(Infinity), 0);
+  assert.equal(wantedHeight(0), 0);
+  assert.equal(scaleForHeight(1080, 360), 3);
+  assert.equal(scaleForHeight(1080, 0), 1, 'sem pedido: imagem cheia');
+  assert.equal(scaleForHeight(720, 1080), 1, 'nunca aumenta');
+  const game = { resolution: '1080p', fps: 60, bitrate: 0, optimize: 'motion', codec: 'auto' };
+  const track = { width: 1920, height: 1080 };
+  const full = sendEncoding(game, track, 0);
+  assert.deepEqual(full, { scaleResolutionDownBy: 1, maxBitrate: targetBitrate(game, track) });
+  const small = sendEncoding(game, track, 360);
+  assert.equal(small.scaleResolutionDownBy, 3);
+  assert.ok(small.maxBitrate < full.maxBitrate / 4 && small.maxBitrate >= 600_000, 'bitrate proporcional à área, com um mínimo');
+});
+
+test('sem compressão na placa de vídeo, 60 fps vira 30 com 2 ou mais pessoas assistindo', () => {
+  const game = { resolution: '1080p', fps: 60, bitrate: 0, optimize: 'motion', codec: 'auto' };
+  assert.equal(effectiveFps(game, { hardware: false, viewers: 1 }), 60);
+  assert.equal(effectiveFps(game, { hardware: false, viewers: 2 }), 30);
+  assert.equal(effectiveFps(game, { hardware: true, viewers: 4 }), 60, 'na placa de vídeo, sem limite');
+  assert.equal(effectiveFps({ ...game, codec: 'VP9' }, { hardware: true, viewers: 2 }), 30, 'VP9 é sempre no processador');
+  assert.equal(effectiveFps({ ...game, fps: 30 }, { hardware: false, viewers: 5 }), 30);
+});
+
+test('multivisor: o arranjo que deixa cada imagem 16:9 maior', () => {
+  assert.equal(bestColumns(1, 990, 790), 1);
+  assert.equal(bestColumns(2, 990, 790), 1, 'palco alto: uma tela sobre a outra');
+  assert.equal(bestColumns(2, 1880, 1000), 2, 'palco largo: lado a lado');
+  assert.equal(bestColumns(3, 1880, 1000), 2);
+  assert.equal(bestColumns(4, 1600, 900), 2);
+  assert.equal(bestColumns(6, 1600, 700), 3);
+  assert.equal(bestColumns(3, 0, 0), 1, 'palco ainda sem tamanho');
+});
+
+test('versões: quem está desatualizado na sala', () => {
+  assert.equal(compareVersions('1.3.0', '1.2.9'), 1);
+  assert.equal(compareVersions('1.10.0', '1.9.0'), 1, 'compara como número, não como texto');
+  assert.equal(compareVersions('1.3.0', '1.3.0'), 0);
+  assert.equal(compareVersions(undefined, '1.3.0'), -1, 'sem versão = mais antiga');
+  const peers = [{ id: 'a', version: '1.3.0' }, { id: 'b', version: '1.2.0' }, { id: 'c' }, { id: 'd', version: '1.4.0' }];
+  assert.deepEqual([...outdatedPeers('1.3.0', peers, true)].sort(), ['b', 'c']);
+  assert.equal(outdatedPeers('1.3.0', peers, false).size, 0, 'servidor antigo não repassa versões: não dá para saber');
 });
 
 test('sinal: ótimo, bom ou ruim', () => {
@@ -333,8 +474,8 @@ test('cores: leitura de hexadecimal e contraste WCAG', () => {
 // Superfícies sobre as quais bordas e anéis de foco aparecem (painel, fundo, campos,
 // grupo segmentado e fundo rebaixado da sala), em cada modo.
 const RING_SURFACES = {
-  dark: ['#151a21', '#0d1117', '#10151c', '#090c10'],
-  light: ['#ffffff', '#f4f6f9', '#eef1f5', '#e9edf2'],
+  dark: ['#16171a', '#0e0f11', '#0f1013', '#08090a'],
+  light: ['#f7f7f8', '#eceef1', '#e8eaee', '#dfe1e5'],
 };
 const minRingContrast = (ui, mode) => Math.min(...RING_SURFACES[mode].map((s) => Theme.contrast(ui, Theme.parseHex(s))));
 
@@ -372,8 +513,8 @@ test('qualquer cor escolhida mantém o contraste mínimo (500 cores aleatórias)
 });
 
 test('aparência inválida volta ao padrão', () => {
-  assert.deepEqual(Theme.normalize(null), { theme: 'dark', accent: '#2563eb' });
-  assert.deepEqual(Theme.normalize({ theme: 'azul', accent: 'xyz' }), { theme: 'dark', accent: '#2563eb' });
+  assert.deepEqual(Theme.normalize(null), { theme: 'dark', accent: '#d92b26' });
+  assert.deepEqual(Theme.normalize({ theme: 'azul', accent: 'xyz' }), { theme: 'dark', accent: '#d92b26' });
   assert.deepEqual(Theme.normalize({ theme: 'light', accent: '#ABCDEF' }), { theme: 'light', accent: '#abcdef' });
 });
 
@@ -425,9 +566,9 @@ test('aparência do processo principal: validação e padrões iguais aos da int
   assert.equal(DEFAULT_APPEARANCE.theme, Theme.DEFAULT_APPEARANCE.theme);
   assert.equal(DEFAULT_APPEARANCE.backgrounds.dark, Theme.SURFACES.dark.bg);
   assert.equal(DEFAULT_APPEARANCE.backgrounds.light, Theme.SURFACES.light.bg);
-  assert.deepEqual(normalizeAppearance(null), { theme: 'dark', backgrounds: { dark: '#0d1117', light: '#f4f6f9' } });
+  assert.deepEqual(normalizeAppearance(null), { theme: 'dark', backgrounds: { dark: '#0e0f11', light: '#eceef1' } });
   assert.deepEqual(normalizeAppearance({ theme: 'roxo', backgrounds: { dark: 'red', light: '#ABCDEF' } }),
-    { theme: 'dark', backgrounds: { dark: '#0d1117', light: '#ABCDEF' } });
+    { theme: 'dark', backgrounds: { dark: '#0e0f11', light: '#ABCDEF' } });
   const current = { theme: 'light', backgrounds: { dark: '#111111', light: '#eeeeee' } };
   assert.deepEqual(normalizeAppearance({ theme: 'system' }, current), { theme: 'system', backgrounds: current.backgrounds });
 });
@@ -446,4 +587,10 @@ test('CSS e theme.js usam as mesmas cores padrão e superfícies', () => {
     assert.equal(value(css, '--bg-sunken'), Theme.SURFACES[mode].sunken, `--bg-sunken (${mode})`);
     assert.equal(value(css, '--seg-bg'), RING_SURFACES[mode][2], `--seg-bg (${mode})`);
   }
+  // Os botões do Windows na barra de título integrada usam a cor da barra e do texto.
+  const { titleBarOverlay, TITLE_BAR_HEIGHT } = require('../src/main/appearance.js');
+  for (const [mode, css] of [['dark', root], ['light', light]]) {
+    assert.deepEqual(titleBarOverlay(mode), { color: value(css, '--panel'), symbolColor: value(css, '--text'), height: TITLE_BAR_HEIGHT }, `barra de título (${mode})`);
+  }
+  assert.match(CSS, /\.room \{[^}]*grid-template-rows: 48px/, 'a barra superior tem a altura da barra de título');
 });

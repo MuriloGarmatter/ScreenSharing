@@ -42,19 +42,22 @@ const PATHS = {
   plus: '<path d="M12 5v14M5 12h14"/>',
   pin: '<path d="M12 17v5"/><path d="M9 10.8a2 2 0 0 1-1.1 1.8l-1.8.9A2 2 0 0 0 5 15.2V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.8a2 2 0 0 0-1.1-1.8l-1.8-.9A2 2 0 0 1 15 10.8V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>',
   pip: '<path d="M21 9V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h4"/><rect x="12" y="13" width="10" height="7" rx="2"/>',
-  pause: '<rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/>',
-  play: '<path d="M7 5v14l11-7z"/>',
+  // Pausa e play são símbolos de transporte: preenchidos, como nas teclas de equipamento.
+  pause: '<rect x="6" y="5" width="4" height="14" rx="0.5" fill="currentColor" stroke="none"/><rect x="14" y="5" width="4" height="14" rx="0.5" fill="currentColor" stroke="none"/>',
+  play: '<path d="M7 5v14l11-7z" fill="currentColor" stroke="none"/>',
   bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
   'bell-off': '<path d="M8.7 3A6 6 0 0 1 18 8a21.3 21.3 0 0 0 .6 5"/><path d="M17 17H3s3-2 3-9a4.7 4.7 0 0 1 .3-1.7"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/><path d="m2 2 20 20"/>',
+  sidebar: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/>',
+  eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  'eye-off': '<path d="M9.9 4.2A10.4 10.4 0 0 1 12 4c6.5 0 10 8 10 8a17.6 17.6 0 0 1-2.2 3.2"/><path d="M6.6 6.6C3.9 8.3 2 12 2 12s3.5 7 10 7a9.7 9.7 0 0 0 5.4-1.6"/><path d="M14.1 14.1a3 3 0 1 1-4.2-4.2"/><path d="m2 2 20 20"/>',
 };
 
-// Cada cópia do logo precisa de um id de degradê próprio: um degradê dentro de
-// um trecho escondido da página (ex.: a tela de entrada) não é desenhado.
-let logoCount = 0;
+// O símbolo é um monitor do multivisor com a faixa de rótulo acesa na cor de destaque.
 function logo() {
-  logoCount += 1;
-  const id = `telao-logo-${logoCount}`;
-  return `<svg viewBox="0 0 48 48" aria-hidden="true"><defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2563eb"/><stop offset="1" stop-color="#6b25eb"/></linearGradient></defs><rect width="48" height="48" rx="12" fill="url(#${id})"/><rect x="10" y="11.5" width="28" height="19" rx="3.5" fill="none" stroke="currentColor" stroke-width="3"/><path d="M24 31v5M17 37h14" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path d="M21.5 16.8v8.4l7-4.2z" fill="currentColor"/></svg>`;
+  return '<svg class="mark" viewBox="0 0 48 48" aria-hidden="true">'
+    + '<rect x="5" y="6" width="38" height="26" rx="2" fill="none" stroke="currentColor" stroke-width="3.5"/>'
+    + '<rect class="mark-umd" x="5" y="36" width="38" height="6" rx="1"/>'
+    + '<rect class="mark-tally" x="10.5" y="11.5" width="6" height="6" rx="0.5"/></svg>';
 }
 
 export function icon(name) {
@@ -86,8 +89,3 @@ export function formatFps(fps) {
   return fps ? `${Math.round(fps)} fps` : '— fps';
 }
 
-export function hueFor(text) {
-  let h = 0;
-  for (const ch of text) h = (h * 31 + ch.codePointAt(0)) % 360;
-  return String(h);
-}

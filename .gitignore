@@ -3,3 +3,4 @@ dist/
 resources/
 server/node_modules/
 .impeccable/
+.wrangler/

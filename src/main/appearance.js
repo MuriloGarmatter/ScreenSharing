@@ -8,7 +8,16 @@ const THEMES = ['dark', 'light', 'system'];
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 const DEFAULT_APPEARANCE = Object.freeze({
   theme: 'dark',
-  backgrounds: Object.freeze({ dark: '#0d1117', light: '#f4f6f9' }),
+  backgrounds: Object.freeze({ dark: '#0e0f11', light: '#eceef1' }),
+});
+
+// Barra de título integrada (Windows): os botões de minimizar, maximizar e fechar são
+// desenhados pelo sistema sobre a barra superior do app, com a cor dela (--panel) e
+// a cor do texto (--text) de cada modo. A altura é a da barra superior.
+const TITLE_BAR_HEIGHT = 48;
+const TITLE_BAR = Object.freeze({
+  dark: Object.freeze({ color: '#16171a', symbolColor: '#eceef1' }),
+  light: Object.freeze({ color: '#f7f7f8', symbolColor: '#121316' }),
 });
 
 /** Valida o que veio do arquivo ou da interface; o que for inválido vem de fallback. */
@@ -24,4 +33,9 @@ function normalizeAppearance(value, fallback = DEFAULT_APPEARANCE) {
   };
 }
 
-module.exports = { DEFAULT_APPEARANCE, normalizeAppearance };
+/** Opções de titleBarOverlay para o modo ('dark' ou 'light'). */
+function titleBarOverlay(mode) {
+  return { ...TITLE_BAR[mode === 'light' ? 'light' : 'dark'], height: TITLE_BAR_HEIGHT };
+}
+
+module.exports = { DEFAULT_APPEARANCE, TITLE_BAR, TITLE_BAR_HEIGHT, normalizeAppearance, titleBarOverlay };

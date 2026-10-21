@@ -6,23 +6,24 @@
   'use strict';
 
   const PREFS_KEY = 'telao.prefs.v1';
-  const DEFAULT_APPEARANCE = { theme: 'dark', accent: '#2563eb' };
+  // A cor de destaque é a luz de "no ar" da mesa de corte; o padrão é o vermelho de tally.
+  const DEFAULT_APPEARANCE = { theme: 'dark', accent: '#d92b26' };
   const THEMES = ['dark', 'light', 'system'];
   const PRESETS = [
-    { name: 'Azul', color: '#2563eb' },
-    { name: 'Roxo', color: '#7c3aed' },
-    { name: 'Rosa', color: '#db2777' },
-    { name: 'Vermelho', color: '#dc2626' },
+    { name: 'Vermelho', color: '#d92b26' },
     { name: 'Laranja', color: '#c2410c' },
     { name: 'Amarelo', color: '#eab308' },
     { name: 'Verde', color: '#15803d' },
     { name: 'Ciano', color: '#0e7490' },
-    { name: 'Grafite', color: '#475569' },
+    { name: 'Azul', color: '#2563eb' },
+    { name: 'Roxo', color: '#7c3aed' },
+    { name: 'Rosa', color: '#db2777' },
+    { name: 'Grafite', color: '#5b6270' },
   ];
   // Superfícies de cada modo; precisam bater com --panel, --bg e --bg-sunken do styles.css.
   const SURFACES = {
-    dark: { panel: '#151a21', bg: '#0d1117', sunken: '#090c10' },
-    light: { panel: '#ffffff', bg: '#f4f6f9', sunken: '#e9edf2' },
+    dark: { panel: '#16171a', bg: '#0e0f11', sunken: '#08090a' },
+    light: { panel: '#f7f7f8', bg: '#eceef1', sunken: '#dfe1e5' },
   };
   // Pior caso para bordas e anéis de foco: no escuro, a superfície mais clara em que
   // eles aparecem (o painel); no claro, a mais escura (o fundo rebaixado da sala).
@@ -146,7 +147,6 @@
     const ui = ensureContrast(accent, reference, 3);
     // No hover, o fundo do botão se afasta da cor do texto (o contraste só melhora).
     const hover = text === WHITE ? mix(accent, BLACK, 0.14) : mix(accent, WHITE, 0.18);
-    const logoTo = rotateHue(accent, 40);
     const dark = mode !== 'light';
     return {
       '--accent': toHex(accent),
@@ -154,10 +154,6 @@
       '--accent-text': toHex(text),
       '--accent-ui': toHex(ui),
       '--accent-soft': rgba(ui, dark ? 0.18 : 0.14),
-      '--logo-from': toHex(accent),
-      '--logo-to': toHex(logoTo),
-      '--glow-1': rgba(accent, dark ? 0.16 : 0.12),
-      '--glow-2': rgba(logoTo, dark ? 0.13 : 0.1),
     };
   }
 

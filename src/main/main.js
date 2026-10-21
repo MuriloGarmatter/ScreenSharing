@@ -12,7 +12,11 @@ const { attachSignaling, turnServers, DEFAULT_ICE_SERVERS } = require('../../ser
 const { handleHttpRequest } = require('../../server/invite-page');
 const { findCloudflared, startTunnel, downloadCloudflared } = require('./tunnel');
 const { AppAudio, DEFAULT_EXCLUDED_APPS } = require('./app-audio');
-const { normalizeAppearance } = require('./appearance');
+const { autoUpdater } = require('electron-updater');
+const { normalizeAppearance, titleBarOverlay } = require('./appearance');
+
+// No Windows a barra superior do app é a barra de título (sem a moldura padrão).
+const INTEGRATED_TITLE_BAR = process.platform === 'win32';
 const { PROTOCOL, findDeepLink } = require('./deeplink');
 
 // "--profile=nome" usa uma pasta de dados separada, permitindo abrir duas
@@ -75,7 +79,10 @@ ipcMain.handle('appearance:set', (_event, options = {}) => {
   const current = readAppearance();
   const next = normalizeAppearance(options, current);
   const mode = applyNativeTheme(next.theme);
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setBackgroundColor(next.backgrounds[mode]);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.setBackgroundColor(next.backgrounds[mode]);
+    if (INTEGRATED_TITLE_BAR) mainWindow.setTitleBarOverlay(titleBarOverlay(mode));
+  }
   if (JSON.stringify(next) !== JSON.stringify(current)) {
     try {
       fs.writeFileSync(appearanceFile(), JSON.stringify(next));
@@ -98,6 +105,8 @@ function createWindow() {
     title: 'Telão',
     icon: fs.existsSync(ICON_PATH) ? ICON_PATH : undefined,
     show: false,
+    // Barra de título integrada: os botões do Windows ficam sobre a barra do app.
+    ...(INTEGRATED_TITLE_BAR ? { titleBarStyle: 'hidden', titleBarOverlay: titleBarOverlay(mode) } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -193,8 +202,11 @@ function updateTray() {
   const { sharing, paused } = liveStatus;
   if (tray) {
     tray.setImage(path.join(ASSETS, sharing ? 'tray-live.png' : 'tray.png'));
-    tray.setToolTip(sharing ? (paused ? 'Telão: transmissão pausada' : 'Telão: AO VIVO') : 'Telão');
+    tray.setToolTip(sharing ? (paused ? 'Telão: transmissão pausada' : 'Telão: no ar') : 'Telão');
     const items = [{ label: 'Abrir o Telão', click: showWindow }];
+    if (updateState.status === 'ready') {
+      items.push({ label: `Reiniciar e atualizar para a ${updateState.version}`, click: installUpdate });
+    }
     if (sharing) {
       items.push(
         { type: 'separator' },
@@ -284,13 +296,18 @@ function describeScreens(sources) {
 ipcMain.handle('sources:list', async (_event, options) => {
   // Sem miniaturas a lista sai bem mais rápido (o atalho Ctrl+Alt+T usa assim).
   const thumbnails = options?.thumbnails !== false;
-  const sources = await desktopCapturer.getSources({
-    types: ['screen', 'window'],
-    thumbnailSize: thumbnails ? { width: 400, height: 225 } : { width: 0, height: 0 },
+  const size = { width: 400, height: 225 };
+  const none = { width: 0, height: 0 };
+  const screens = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: thumbnails ? size : none });
+  // Miniatura de janela custa caro: o Windows desenha cada janela aberta (até a do
+  // jogo) e o PC engasga. Só quando a aba Janelas pede; o ícone é barato.
+  const windows = await desktopCapturer.getSources({
+    types: ['window'],
+    thumbnailSize: thumbnails && options?.windowThumbnails ? size : none,
     fetchWindowIcons: thumbnails,
   });
+  const sources = [...screens, ...windows];
   const ownWindowId = mainWindow ? mainWindow.getMediaSourceId() : null;
-  const screens = sources.filter((s) => s.id.startsWith('screen:'));
   const screenInfo = describeScreens(screens);
   const result = screens.map((s, i) => ({
     id: s.id,
@@ -420,6 +437,7 @@ ipcMain.handle('app:info', () => ({
   appAudio: appAudio.supported,
   defaultExcludedApps: DEFAULT_EXCLUDED_APPS,
   selfExe: path.basename(process.execPath),
+  integratedTitleBar: INTEGRATED_TITLE_BAR,
 }));
 
 ipcMain.handle('appaudio:start', (_event, options = {}) => appAudio.start({
@@ -448,6 +466,60 @@ ipcMain.handle('power:keep-awake', (_event, on) => {
   }
 });
 
+// ---------- Atualização automática ----------
+// As versões saem no GitHub (repositório público). Instalado pelo Setup, o Telão baixa
+// a nova sozinho e instala ao fechar, ou na hora pelo botão "Reiniciar e atualizar".
+// O portátil não consegue se substituir: só avisa e abre a página para baixar.
+
+const PORTABLE = Boolean(process.env.PORTABLE_EXECUTABLE_FILE);
+const RELEASES_URL = 'https://github.com/MuriloGarmatter/ScreenSharing/releases/latest';
+const UPDATE_CHECK_MS = 4 * 60 * 60 * 1000;
+// status: idle | downloading | ready (instalado, já baixada) | available (portátil) | none | error
+let updateState = { status: 'idle', version: '', percent: 0, portable: PORTABLE };
+
+function setUpdateState(patch) {
+  updateState = { ...updateState, ...patch };
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('update:status', updateState);
+  updateTray();
+}
+
+function installUpdate() {
+  if (updateState.status === 'ready') {
+    // Instala em silêncio e abre o Telão de novo já atualizado.
+    setImmediate(() => autoUpdater.quitAndInstall(true, true));
+    return true;
+  }
+  if (updateState.status === 'available') {
+    shell.openExternal(RELEASES_URL);
+    return true;
+  }
+  return false;
+}
+
+function setupUpdates() {
+  if (!app.isPackaged) return; // rodando pelo código (npm start): sem atualização
+  autoUpdater.allowPrerelease = true; // as versões saem como "pré-lançamento" no GitHub
+  autoUpdater.autoDownload = !PORTABLE;
+  autoUpdater.autoInstallOnAppQuit = !PORTABLE;
+  autoUpdater.on('update-available', (info) => {
+    setUpdateState({ status: PORTABLE ? 'available' : 'downloading', version: info.version, percent: 0 });
+  });
+  autoUpdater.on('download-progress', (progress) => setUpdateState({ status: 'downloading', percent: Math.round(progress.percent) }));
+  autoUpdater.on('update-downloaded', (info) => setUpdateState({ status: 'ready', version: info.version, percent: 100 }));
+  autoUpdater.on('update-not-available', () => setUpdateState({ status: 'none' }));
+  autoUpdater.on('error', (err) => {
+    console.warn('Atualização:', err?.message || err);
+    // Um erro na checagem não apaga uma atualização que já está pronta.
+    if (updateState.status !== 'ready') setUpdateState({ status: 'error' });
+  });
+  const check = () => autoUpdater.checkForUpdates().catch(() => {});
+  setTimeout(check, 15_000); // depois de abrir, sem atrasar a entrada na sala
+  setInterval(check, UPDATE_CHECK_MS);
+}
+
+ipcMain.handle('update:status', () => updateState);
+ipcMain.handle('update:install', () => installUpdate());
+
 app.whenReady().then(() => {
   if (!gotSingleInstanceLock) return;
   Menu.setApplicationMenu(null);
@@ -455,6 +527,7 @@ app.whenReady().then(() => {
   setupDisplayMedia();
   createWindow();
   createTray();
+  setupUpdates();
   app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow(); });
 });
 
