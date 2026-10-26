@@ -36,7 +36,8 @@ O som do **Discord não vai junto**, então ninguém ouve a própria voz de volt
   - [2. Entrar numa sala (os amigos)](#2-entrar-numa-sala-os-amigos)
   - [3. Transmitir a sua tela](#3-transmitir-a-sua-tela)
   - [4. Assistir a tela dos outros](#4-assistir-a-tela-dos-outros)
-  - [5. Avisos, bandeja e cores](#5-avisos-bandeja-e-cores)
+  - [5. Ligar a câmera](#5-ligar-a-câmera)
+  - [6. Avisos, bandeja e cores](#6-avisos-bandeja-e-cores)
 - [Atalhos de teclado](#-atalhos-de-teclado)
 - [Som: como o Discord fica de fora](#-som-como-o-discord-fica-de-fora)
 - [Qualidade, FPS e internet](#-qualidade-fps-e-internet)
@@ -59,7 +60,9 @@ O som do **Discord não vai junto**, então ninguém ouve a própria voz de volt
   (resolução, FPS, bitrate, codec) continuam lá e mudam **durante** a transmissão.
 - **Pesa pouco no jogo:** quando a placa de vídeo comprime o vídeo (H.264), o app usa ela sozinho.
 - **Várias pessoas podem transmitir ao mesmo tempo.** Dá para **destacar** uma tela, assistir numa
-  **janelinha flutuante** por cima do jogo e mandar **reações** (😂🔥👏).
+  **janelinha flutuante** por cima do jogo, mandar **reações** (😂🔥👏) e **parar de assistir** quem
+  você não quer ver: a tela dessa pessoa sai do caminho.
+- **Câmera:** cada um pode ligar a webcam (sem som), junto com a tela ou sozinha.
 - **Pausa com uma tecla** (`Ctrl+Alt+P`) para quando aparecer algo que você não quer mostrar.
 - **Avisa quando alguém começa a transmitir**, com som, notificação e a barra de tarefas piscando.
 - **Vai direto de PC para PC:** a imagem e o som não passam por nenhum servidor de terceiros.
@@ -327,13 +330,14 @@ Quando alguém começa a transmitir, aparece o aviso "**Fulano começou a transm
 Telão estiver em segundo plano, a barra de tarefas pisca e o Windows mostra uma notificação. A tela da
 pessoa aparece no meio do Telão. Se várias pessoas transmitirem, as telas ficam lado a lado.
 
-Passe o mouse sobre a tela de alguém para ver os controles:
+Mexa o mouse sobre a tela de alguém para ver os controles. Com o mouse parado, eles somem depois de
+uns 2 segundos (o cursor some junto) e a imagem fica limpa:
 
 | Controle | O que faz |
 |---|---|
 | 🔊 e a barra de volume | Som dessa pessoa. O volume fica **lembrado** para a próxima vez. |
-| 📌 **Destacar** | Deixa essa tela grande e as outras pequenas, numa coluna ao lado. Clicar na imagem também destaca. Clique de novo no 📌 para desfazer. |
-| 👁️ **Parar de assistir** | Para de receber essa transmissão (imagem e som). Economiza processador e internet **dos dois lados**: quem transmite para de comprimir para você. Para voltar, clique em **Assistir de novo**. |
+| 📌 **Destacar** | Deixa essa tela grande e as outras pequenas, numa fileira embaixo. Clicar na imagem também destaca. Clique de novo no 📌 para desfazer. |
+| 👁️ **Parar de assistir** | A tela some do Telão e você para de receber essa transmissão (imagem e som). As telas que você continua assistindo ficam com o espaço todo. Economiza processador e internet **dos dois lados**: quem transmite para de comprimir para você. Para voltar, clique no nome da pessoa em **Não assistindo**, embaixo das telas. |
 | **Janelinha flutuante** | Abre a tela numa janelinha que fica **por cima de todos os programas**. É ótima para assistir um amigo enquanto você joga. Dá para mover e mudar o tamanho. |
 | ⓘ | Mostra os detalhes: resolução, FPS, velocidade, codec, pacotes perdidos e o atraso. |
 | ⛶ | Tela cheia. **Dois cliques** na imagem também abrem e fecham a tela cheia. `Esc` sai. |
@@ -354,7 +358,24 @@ Para pesar menos no PC, o Telão também se ajusta sozinho:
 
 Enquanto você assiste ou transmite, o Telão impede que o monitor apague sozinho.
 
-### 5. Avisos, bandeja e cores
+### 5. Ligar a câmera
+
+Clique no botão da **câmera** 🎥 no alto da sala (ao lado de **Compartilhar tela**). O botão acende e
+aparece o painel **Sua câmera**, com a sua imagem (espelhada só para você) e o botão **Desligar
+câmera**. Se o PC tiver mais de uma câmera, escolha qual em **Qual câmera**.
+
+- A câmera é **independente da tela**: dá para ligar só a câmera, só a tela, ou as duas.
+- Ela vai **sem som**. Para conversar, continuem no Discord.
+- Para os outros, a câmera aparece como mais uma tela, com o rótulo **câmera**. Quando há telas no ar,
+  as câmeras ficam pequenas na fileira de baixo; dá para destacar uma câmera ou parar de assisti-la
+  como qualquer tela. Na lista **Na sala**, quem está com a câmera ligada tem um 🎥 ao lado do nome.
+- A câmera vai em até 540p a 30 FPS, que pesa pouco. Quem está numa **versão antiga** do Telão não
+  vê a câmera; o painel **Sua câmera** avisa quem é.
+- **Não ligou?** Se o Windows bloquear, abra **Configurações → Privacidade e segurança → Câmera** e
+  ligue **Permitir que aplicativos da área de trabalho acessem a câmera**. Se outro programa estiver
+  usando a câmera (Discord, OBS, navegador), feche-o e tente de novo.
+
+### 6. Avisos, bandeja e cores
 
 - **Sons de aviso:** o sininho 🔔 no alto liga e desliga os sons (alguém começou a transmitir, você
   começou, pausou ou parou).
@@ -578,14 +599,21 @@ Quem entra pelo link da internet não depende disso.
 
 ### Participante fica em "conectando…" ou "falhou"
 
-Vocês entraram na sala, mas os dois PCs não conseguiram se conectar diretamente. Isso acontece em
-algumas redes mais fechadas.
+Também aparece como uma tela que fica **carregando para sempre** para algumas pessoas, enquanto outras
+veem normalmente, com o aviso "Sem conexão direta com Fulano. Tentando de novo…". Os dois PCs não
+conseguiram se conectar diretamente. Isso acontece em algumas redes mais fechadas (internet com CGNAT,
+4G, redes de empresa ou faculdade) e é mais comum entre países diferentes.
 
-1. Espere uns segundos: o app tenta de novo sozinho.
-2. Tente outra rede (por exemplo, o Wi-Fi de casa em vez do 4G).
-3. Usem uma **VPN de jogos** (Radmin VPN, ZeroTier, Tailscale) e entrem pelo convite da VPN.
-4. Quem entende um pouco mais pode configurar um **servidor TURN** em "Avançado: servidor TURN",
-   ao criar a sala. Ele retransmite a conexão quando a direta não é possível.
+- **Sala no Servidor do Telão:** quando a conexão direta não dá, o Telão passa sozinho por um
+  **retransmissor (TURN) da Cloudflare**. Não precisa fazer nada; a imagem continua criptografada e
+  pode ter um pouco mais de atraso. Se mesmo assim não conectar, peça para essa pessoa sair e entrar
+  de novo.
+- **Sala em Este computador:**
+  1. Espere uns segundos: o app tenta de novo sozinho.
+  2. Tente outra rede (por exemplo, o Wi-Fi de casa em vez do 4G).
+  3. Usem uma **VPN de jogos** (Radmin VPN, ZeroTier, Tailscale) e entrem pelo convite da VPN.
+  4. Quem entende um pouco mais pode configurar um **servidor TURN** em "Avançado: servidor TURN",
+     ao criar a sala. Ele retransmite a conexão quando a direta não é possível.
 
 ### "Reconectando…" no alto da tela
 
@@ -702,7 +730,8 @@ avisa que precisa do Telão no computador.
 **Dá para conversar pelo Telão?**
 
 Não: o Telão não tem microfone nem chat. Usem o Discord (ou outro app) para conversar. O som da chamada
-não entra na transmissão. Para reagir sem falar, use as **reações** 😂🔥👏.
+não entra na transmissão. Para reagir sem falar, use as **reações** 😂🔥👏, ou ligue a **câmera**
+(ela vai sem som).
 
 **Quantas pessoas cabem numa sala?**
 
@@ -829,6 +858,12 @@ flowchart TB
   Como cada pessoa tem a própria conexão, cada uma recebe a qualidade que a internet dela aguenta. O
   canal de dados de cada conexão leva as reações (com limite de envio).
 - **Pausa:** desliga as faixas (`track.enabled = false`), sem renegociar; o estado "pausado" vai pela sala.
+- **Câmera:** um transceptor de vídeo a mais por pessoa (`getUserMedia`, até 540p/30, H.264 preferido),
+  independente da tela. Quem liga avisa pelo canal de dados qual é o id do stream da câmera
+  (`{type: 'media', camera}`), e quem recebe separa as faixas por esse id: a câmera vai para
+  `cameraStream`, a tela para `remoteStream`. Só vai para quem está na 1.4 ou mais nova (pela versão no
+  estado da sala), porque versões antigas misturariam as duas. "Parar de assistir" a câmera usa o mesmo
+  pedido da tela (`view.camera`/`camHeight`): o transceptor fica sem faixa e nada é comprimido.
 - **Som por aplicativo:** `native/TelaoAudio.cs` usa a API de *process loopback* do WASAPI
   (Windows 10 2004+). Ele lista os apps com sessão de áudio, descarta os excluídos (e os filhos
   deles), captura cada app separadamente e manda o PCM pelo stdout. A interface mistura tudo com
@@ -887,6 +922,38 @@ npm run test:server -- wss://telao.xmbc.workers.dev
 Para testar antes de publicar: `npm run dev` (na pasta `worker/`) e
 `npm run test:server -- ws://127.0.0.1:8787`. Senha e TURN funcionam como no servidor do PC, como
 *secrets* do Worker (`npx wrangler secret put SERVER_PASSWORD`, `CLOUDFLARE_TURN_KEY_ID`…).
+
+**Retransmissor (TURN) da Cloudflare:** para quem não consegue conexão direta (CGNAT, 4G, outro
+país). Crie uma chave em **Realtime → TURN Server** no painel da Cloudflare e grave as duas partes
+como *secrets* (cada comando pede o valor):
+
+```bash
+cd worker
+npx wrangler secret put CLOUDFLARE_TURN_KEY_ID      # o "Turn Token ID"
+npx wrangler secret put CLOUDFLARE_TURN_API_TOKEN   # o "API Token"
+```
+
+O Worker gera credenciais de 24 h a cada entrada na sala (guardadas por 12 h) e tira os endereços na
+porta 53, que os navegadores bloqueiam. O TURN só é usado quando a conexão direta falha; os primeiros
+1.000 GB por mês são grátis (depois, US$ 0,05 por GB). Funciona também para quem está em versões
+antigas do app, porque as credenciais vão na entrada da sala.
+
+Para nunca passar da cota grátis, há duas travas. Sem o TURN, tudo funciona como antes: só quem não
+consegue conexão direta fica sem ver.
+
+- **Teto mensal automático.** Com um token **só de leitura** ("Account Analytics: Read", criado em
+  **Meu perfil → Tokens de API**), o Worker consulta o consumo do mês a cada 10 minutos, no máximo, e
+  para de oferecer o TURN ao passar de 900 GB (mude com a variável `TURN_LIMIT_GB`). No mês seguinte
+  ele volta sozinho.
+
+  ```bash
+  npx wrangler secret put CLOUDFLARE_ACCOUNT_ID
+  npx wrangler secret put CLOUDFLARE_ANALYTICS_TOKEN
+  ```
+
+- **Interruptor manual.** No painel: **Workers e Pages → telao → Configurações → Variáveis e
+  segredos → Adicionar**, tipo Texto, nome `TURN`, valor `off`, e **Implantar**. Para religar, apague
+  a variável. O `keep_vars` do `wrangler.jsonc` mantém essa variável nos próximos deploys.
 
 ### Servidor sempre ligado em outro lugar (opcional)
 

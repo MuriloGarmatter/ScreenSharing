@@ -18,7 +18,11 @@ export class StatsTracker {
     return d ? (d.amount * 8) / d.seconds : null;
   }
 
-  async collect(pc, { remoteVideoTrackId } = {}) {
+  /**
+   * remoteVideoTrackId: a faixa da tela recebida; sendVideoMid: o mid do envio da
+   * tela (com a câmera ligada há dois vídeos indo e vindo, e o que interessa é a tela).
+   */
+  async collect(pc, { remoteVideoTrackId, sendVideoMid } = {}) {
     const report = await pc.getStats();
     const all = new Map();
     report.forEach((s) => all.set(s.id, s));
@@ -37,7 +41,10 @@ export class StatsTracker {
             codec: codecOf(s), implementation: s.encoderImplementation,
             hardware: s.powerEfficientEncoder, limitation: s.qualityLimitationReason,
           };
-          if (!result.sendVideo || (bitrate || 0) > (result.sendVideo.bitrate || 0)) result.sendVideo = item;
+          const isScreen = sendVideoMid != null && s.mid === sendVideoMid;
+          if (isScreen || (!result.sendVideo?.screen && (!result.sendVideo || (bitrate || 0) > (result.sendVideo.bitrate || 0)))) {
+            result.sendVideo = { ...item, screen: isScreen };
+          }
         } else if (s.kind === 'audio') {
           if (!result.sendAudio || (bitrate || 0) > (result.sendAudio.bitrate || 0)) result.sendAudio = { bitrate, codec: codecOf(s) };
         }

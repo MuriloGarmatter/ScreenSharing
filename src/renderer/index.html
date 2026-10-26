@@ -170,6 +170,7 @@
         <button id="console-btn" class="icon-btn" aria-pressed="true" aria-controls="console" data-icon="sidebar"></button>
         <button id="sounds-btn" class="icon-btn" aria-pressed="true"></button>
         <button class="icon-btn" data-open-appearance title="Aparência: tema e cores" aria-label="Aparência: tema e cores" data-icon="palette"></button>
+        <button id="camera-btn" class="icon-btn camera-btn" aria-pressed="false" aria-label="Câmera" data-icon="camera"></button>
         <button id="share-btn" class="btn primary"></button>
         <button id="leave-btn" class="btn ghost" title="Sair da sala" aria-label="Sair da sala"><span data-icon="logout"></span><span class="label">Sair</span></button>
       </div>
@@ -179,18 +180,38 @@
       <!-- Ninguém no ar: um monitor do multivisor sem sinal. -->
       <div id="empty-stage" class="empty">
         <div class="empty-screen">
-          <h2>Ninguém está transmitindo</h2>
-          <p>Quando alguém compartilhar a tela, ela aparece aqui. Clique em <strong>Compartilhar tela</strong> para transmitir a sua.</p>
+          <h2 id="empty-title">Ninguém está transmitindo</h2>
+          <p id="empty-idle">Quando alguém compartilhar a tela ou ligar a câmera, ela aparece aqui. Clique em <strong>Compartilhar tela</strong> para transmitir a sua.</p>
+          <p id="empty-unwatched" hidden>Para voltar a assistir alguém, clique no nome dele embaixo, em <strong>Não assistindo</strong>.</p>
         </div>
         <div class="umd"><span class="tally" aria-hidden="true"></span><span class="umd-name">Sem sinal</span></div>
       </div>
-      <div id="tiles" class="tiles"></div>
+      <!-- O palco; embaixo, a fileira (câmeras e o que não está em destaque) e
+           quem você parou de assistir. -->
+      <div id="tiles" class="tiles" hidden></div>
+      <div id="tile-strip" class="tile-strip" hidden></div>
+      <div id="offscreen" class="offscreen" role="group" aria-label="Transmissões que você não está assistindo" hidden></div>
     </section>
 
     <aside id="console" class="sidebar">
       <section class="panel">
         <h3>Na sala <span id="participant-count" class="count"></span></h3>
         <ul id="participants" class="participants"></ul>
+      </section>
+
+      <section id="camera-panel" class="panel" hidden>
+        <h3>Sua câmera</h3>
+        <div class="preview-monitor">
+          <!-- Espelhada só aqui, como um espelho; os outros veem do jeito certo. -->
+          <video id="camera-preview" class="camera-preview" muted playsinline autoplay></video>
+          <div class="camera-info umd"><span class="tally" aria-hidden="true"></span><span class="umd-name">Câmera</span><span id="camera-source"></span></div>
+        </div>
+        <label class="field" id="camera-device-field" hidden>
+          <span>Qual câmera</span>
+          <select id="camera-device"></select>
+        </label>
+        <p id="camera-hint" class="hint"></p>
+        <button id="camera-off-btn" class="btn small danger"><span data-icon="stop"></span>Desligar câmera</button>
       </section>
 
       <section class="panel" id="share-panel">

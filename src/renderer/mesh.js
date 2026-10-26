@@ -4,8 +4,9 @@
 // (re)negociar a qualquer momento sem colisões.
 
 import {
-  AUDIO_BITRATE, mungeRemoteSdp, pickCodec, sendEncoding, startBitrateKbps, videoConstraints,
+  AUDIO_BITRATE, cameraEncoding, mungeRemoteSdp, pickCodec, sendEncoding, startBitrateKbps, videoConstraints,
 } from './media.js';
+import { compareVersions } from './version.js';
 
 const CONNECT_TIMEOUT_MS = 10_000;
 const RECONNECT_DELAYS_MS = [1000, 2000, 4000, 8000, 15000];
@@ -15,11 +16,23 @@ const KEEPALIVE_MS = 30_000;
 const ICE_RESTART_DELAYS_MS = [8000, 15000, 30000]; // conexão P2P que não sobe (o lado "polite" espera o dobro)
 const REACTION_WINDOW_MS = 2000;
 const REACTION_LIMIT = 8; // por pessoa, a cada 2 s
-const FULL_VIEW = { video: true, audio: true, height: 0 };
+const FULL_VIEW = { video: true, audio: true, height: 0, camera: true, camHeight: 0 };
+// A câmera só vai para quem sabe separá-la da tela (versões antigas misturariam as duas).
+export const CAMERA_VERSION = '1.4.0';
 
 export const REACTIONS = ['😂', '🔥', '👏', '😮', '❤️', '👍'];
 
-const sameView = (a, b) => Boolean(a && b) && a.video === b.video && a.audio === b.audio && a.height === b.height;
+const sameView = (a, b) => Boolean(a && b) && a.video === b.video && a.audio === b.audio && a.height === b.height
+  && a.camera === b.camera && a.camHeight === b.camHeight;
+
+/** Essa pessoa está numa versão que recebe câmera? */
+export const supportsCamera = (peer) => compareVersions(peer?.state?.version, CAMERA_VERSION) >= 0;
+
+/** Altura pedida (em linhas) válida, ou 0 = cheia. */
+const viewHeight = (value) => {
+  const height = Number(value);
+  return Number.isInteger(height) && height > 0 && height <= 4320 ? height : 0;
+};
 
 export class Mesh extends EventTarget {
   #ws = null;
@@ -40,6 +53,7 @@ export class Mesh extends EventTarget {
     this.serverFeatures = []; // o que o servidor da sala sabe fazer (ex.: 'version')
     this.peers = new Map();
     this.share = null; // { stream, videoTrack, audioTrack, settings }
+    this.camera = null; // { stream, track }: a minha câmera
     this.state = { sharing: false, version: this.version };
     this.serverConnected = false;
   }
@@ -58,6 +72,7 @@ export class Mesh extends EventTarget {
     this.#ws = null;
     if (ws) ws.close();
     this.share = null;
+    this.camera = null;
   }
 
   // ---------- Transmissão local ----------
@@ -88,15 +103,21 @@ export class Mesh extends EventTarget {
   }
 
   /**
-   * O que eu quero receber de uma pessoa: { video, audio, height }. Parar de
-   * assistir = sem vídeo e sem som; Telão escondido = só o som; height = a altura
-   * em que mostro a tela dela (0 = cheia). Só manda se mudou; se o canal ainda
-   * não abriu, manda quando abrir.
+   * O que eu quero receber de uma pessoa: { video, audio, height, camera, camHeight }.
+   * Parar de assistir = sem vídeo e sem som; Telão escondido = só o som; height = a
+   * altura em que mostro a tela dela (0 = cheia); camera/camHeight = o mesmo para a
+   * câmera. Só manda se mudou; se o canal ainda não abriu, manda quando abrir.
    */
   setView(peerId, view) {
     const peer = this.peers.get(peerId);
     if (!peer) return;
-    const next = { video: view.video !== false, audio: view.audio !== false, height: view.height || 0 };
+    const next = {
+      video: view.video !== false,
+      audio: view.audio !== false,
+      height: view.height || 0,
+      camera: view.camera !== false,
+      camHeight: view.camHeight || 0,
+    };
     if (sameView(peer.wantedView, next)) return;
     peer.wantedView = next;
     this.#sendView(peer);
@@ -149,6 +170,34 @@ export class Mesh extends EventTarget {
       for (const tx of [peer.videoTx, peer.audioTx]) this.#deactivate(tx);
     }
     this.setState({ sharing: false });
+  }
+
+  // ---------- Câmera ----------
+
+  /**
+   * Liga a câmera para quem tem a versão nova. Chamada de novo com o mesmo stream
+   * (outra câmera escolhida, faixa trocada dentro dele), só troca a faixa: ninguém
+   * precisa renegociar nem recriar a tela.
+   */
+  startCamera(stream) {
+    const track = stream.getVideoTracks()[0];
+    if (!track) return;
+    track.contentHint = 'motion';
+    this.camera = { stream, track };
+    for (const peer of this.peers.values()) {
+      if (!supportsCamera(peer)) continue;
+      this.#sendMedia(peer); // antes da faixa: quem recebe já sabe que ela é a câmera
+      this.#attachCamera(peer);
+    }
+  }
+
+  stopCamera() {
+    if (!this.camera) return;
+    this.camera = null;
+    for (const peer of this.peers.values()) {
+      this.#deactivate(peer.camTx);
+      this.#sendMedia(peer);
+    }
   }
 
   setState(state) {
@@ -311,9 +360,14 @@ export class Mesh extends EventTarget {
       settingRemoteAnswer: false,
       queue: Promise.resolve(),
       paramsQueue: Promise.resolve(),
-      remoteStream: new MediaStream(),
+      remoteStream: new MediaStream(), // a tela dela (e o som da tela)
+      cameraStream: new MediaStream(), // a câmera dela
+      remoteCameraId: null, // id do stream da câmera dela, enquanto ligada (vem pelo canal)
+      cameraSids: new Set(), // streams que já foram a câmera dela (a faixa fica sendo câmera)
+      trackStreams: new Map(), // faixa recebida -> id do stream em que ela veio
       videoTx: null,
       audioTx: null,
+      camTx: null, // a minha câmera para ela
       stats: null,
       view: { ...FULL_VIEW }, // o que essa pessoa quer receber de mim
       wantedView: null, // o que eu quero receber dela (ver setView)
@@ -325,7 +379,10 @@ export class Mesh extends EventTarget {
     // quero receber" de cada um.
     peer.channel = pc.createDataChannel('telao', { negotiated: true, id: 0 });
     peer.channel.onmessage = (event) => this.#onPeerMessage(peer, event.data);
-    peer.channel.onopen = () => this.#sendView(peer);
+    peer.channel.onopen = () => {
+      this.#sendView(peer);
+      this.#sendMedia(peer);
+    };
 
     pc.onnegotiationneeded = async () => {
       // Na primeira negociação só o lado "impolite" oferece. Se os dois oferecessem
@@ -346,8 +403,9 @@ export class Mesh extends EventTarget {
     pc.onicecandidate = ({ candidate }) => {
       if (candidate) this.#signal(peer, { candidate });
     };
-    pc.ontrack = ({ track }) => {
-      if (!peer.remoteStream.getTrackById(track.id)) peer.remoteStream.addTrack(track);
+    pc.ontrack = ({ track, streams }) => {
+      peer.trackStreams.set(track, streams[0]?.id || null);
+      this.#routeTracks(peer);
       track.onmute = () => this.#emit('remote-media', { peer });
       track.onunmute = () => this.#emit('remote-media', { peer });
       this.#emit('remote-track', { peer, track });
@@ -368,6 +426,7 @@ export class Mesh extends EventTarget {
     };
 
     if (this.share) this.#attachShare(peer);
+    if (this.camera && supportsCamera(peer)) this.#attachCamera(peer);
     this.#watchConnection(peer, 0);
     this.#emit('peer-joined', { peer, silent });
   }
@@ -395,20 +454,50 @@ export class Mesh extends EventTarget {
     try { msg = JSON.parse(data); } catch { return; }
     if (msg?.type === 'view') this.#onView(peer, msg);
     else if (msg?.type === 'reaction') this.#onReaction(peer, msg);
+    else if (msg?.type === 'media') this.#onMedia(peer, msg);
   }
 
   /** A pessoa avisou o que quer receber de mim (parou de assistir, só o som, tela pequena). */
   #onView(peer, msg) {
-    const height = Number(msg.height);
     const view = {
       video: msg.video !== false,
       audio: msg.audio !== false,
-      height: Number.isInteger(height) && height > 0 && height <= 4320 ? height : 0,
+      height: viewHeight(msg.height),
+      camera: msg.camera !== false,
+      camHeight: viewHeight(msg.camHeight),
     };
     if (sameView(peer.view, view)) return;
     peer.view = view;
-    if (this.share) this.#applyView(peer);
+    this.#applyView(peer);
     this.#emit('view', { peer });
+  }
+
+  /** A pessoa ligou ou desligou a câmera: o id do stream separa a câmera da tela. */
+  #onMedia(peer, msg) {
+    const camera = typeof msg.camera === 'string' && msg.camera.length <= 100 ? msg.camera : null;
+    if (peer.remoteCameraId === camera) return;
+    peer.remoteCameraId = camera;
+    if (camera) peer.cameraSids.add(camera);
+    this.#routeTracks(peer);
+    this.#emit('camera', { peer });
+  }
+
+  #sendMedia(peer) {
+    if (peer.channel?.readyState !== 'open' || !supportsCamera(peer)) return;
+    peer.channel.send(JSON.stringify({ type: 'media', camera: this.camera ? this.camera.stream.id : null }));
+  }
+
+  /**
+   * Põe cada faixa recebida no lugar certo: a câmera em cameraStream, a tela e o som
+   * dela em remoteStream. Quem não manda o aviso (versões antigas) só tem a tela.
+   */
+  #routeTracks(peer) {
+    for (const [track, sid] of peer.trackStreams) {
+      const camera = Boolean(sid) && peer.cameraSids.has(sid);
+      const [to, from] = camera ? [peer.cameraStream, peer.remoteStream] : [peer.remoteStream, peer.cameraStream];
+      if (from.getTrackById(track.id)) from.removeTrack(track);
+      if (!to.getTrackById(track.id)) to.addTrack(track);
+    }
   }
 
   #onReaction(peer, msg) {
@@ -427,7 +516,7 @@ export class Mesh extends EventTarget {
     this.peers.delete(id);
     clearTimeout(peer.watchdog);
     peer.pc.close();
-    for (const track of peer.remoteStream.getTracks()) track.stop();
+    for (const track of [...peer.remoteStream.getTracks(), ...peer.cameraStream.getTracks()]) track.stop();
     this.#emit('peer-left', { peer, silent });
   }
 
@@ -495,10 +584,45 @@ export class Mesh extends EventTarget {
     return tx;
   }
 
-  /** Aplica o que a pessoa quer receber: liga/desliga imagem e som e ajusta o tamanho. */
+  #attachCamera(peer) {
+    const { stream, track } = this.camera;
+    const sent = peer.view.camera ? track : null;
+    if (!peer.camTx) {
+      peer.camTx = peer.pc.addTransceiver(sent || 'video', {
+        direction: 'sendonly',
+        streams: [stream],
+        sendEncodings: [cameraEncoding(track.getSettings(), peer.view.camHeight)],
+      });
+      this.#preferH264(peer.camTx);
+    } else {
+      peer.camTx.sender.replaceTrack(sent).catch((err) => console.warn('replaceTrack (câmera) falhou:', err));
+      peer.camTx.sender.setStreams(stream);
+      if (peer.camTx.direction !== 'sendonly') peer.camTx.direction = 'sendonly';
+    }
+    this.#applySendParams(peer);
+  }
+
+  /** Câmera em H.264: quem assiste descomprime na placa de vídeo. */
+  #preferH264(tx) {
+    if (typeof tx.setCodecPreferences !== 'function') return;
+    try {
+      const codecs = RTCRtpReceiver.getCapabilities('video')?.codecs || [];
+      const h264 = codecs.filter((c) => c.mimeType.toLowerCase() === 'video/h264');
+      if (h264.length) tx.setCodecPreferences([...h264, ...codecs.filter((c) => !h264.includes(c))]);
+    } catch (err) {
+      console.warn('setCodecPreferences (câmera) falhou:', err);
+    }
+  }
+
+  /** Aplica o que a pessoa quer receber: liga/desliga imagem, som e câmera e ajusta o tamanho. */
   #applyView(peer) {
     const share = this.share;
-    for (const [tx, track, kind] of [[peer.videoTx, share.videoTrack, 'video'], [peer.audioTx, share.audioTrack, 'audio']]) {
+    const sending = [
+      [peer.videoTx, share?.videoTrack, 'video'],
+      [peer.audioTx, share?.audioTrack, 'audio'],
+      [peer.camTx, this.camera?.track, 'camera'],
+    ];
+    for (const [tx, track, kind] of sending) {
       if (!tx || !track || tx.direction !== 'sendonly') continue;
       const sent = peer.view[kind] ? track : null;
       if (tx.sender.track === sent) continue;
@@ -555,7 +679,17 @@ export class Mesh extends EventTarget {
     // Durante uma negociação os parâmetros mudam por baixo e setParameters
     // falharia; eles são reaplicados quando a negociação termina ("stable").
     // Antes da primeira negociação valem os sendEncodings do addTransceiver.
-    if (!share || peer.pc.signalingState !== 'stable') return;
+    if (peer.pc.signalingState !== 'stable') return;
+
+    const camera = this.camera && peer.camTx?.currentDirection ? peer.camTx.sender : null;
+    if (camera?.track) {
+      const params = camera.getParameters();
+      if (params.encodings?.length) {
+        Object.assign(params.encodings[0], cameraEncoding(this.camera.track.getSettings(), peer.view.camHeight));
+        await camera.setParameters(params);
+      }
+    }
+    if (!share) return;
 
     const video = peer.videoTx?.currentDirection ? peer.videoTx.sender : null;
     if (video?.track) {

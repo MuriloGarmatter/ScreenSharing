@@ -47,7 +47,8 @@ export class Lobby {
   constructor(ctx, env) {
     this.ctx = ctx;
     this.password = env.SERVER_PASSWORD || '';
-    this.getIceServers = iceServersFromEnv(env);
+    // Avisos (TURN desligado pelo teto, falhas) só aparecem no "wrangler tail"; nada fica gravado.
+    this.getIceServers = iceServersFromEnv(env, (message) => console.warn(message));
     this.joining = new WeakSet();
     if (typeof WebSocketRequestResponsePair === 'function') {
       ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(KEEPALIVE_PING, KEEPALIVE_PONG));

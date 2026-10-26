@@ -429,11 +429,15 @@ details > summary::-webkit-details-marker { display: none; }
 #console-btn[aria-pressed="false"] { color: var(--muted); }
 #sounds-btn[aria-pressed="false"] { color: var(--muted); }
 
-/* A parede do multivisor. */
-.stage { position: relative; min-width: 0; min-height: 0; padding: 8px; background: var(--wall); }
+/* A parede do multivisor: o palco em cima; embaixo, a fileira (câmeras e o que não
+   está em destaque) e a faixa de quem você parou de assistir. */
+.stage {
+  position: relative; min-width: 0; min-height: 0; padding: 8px; background: var(--wall);
+  display: grid; grid-template-rows: minmax(0, 1fr) auto auto; gap: 8px;
+}
 /* Ninguém no ar: um monitor preto com a faixa "Sem sinal", como o da tela inicial. */
 .empty {
-  position: absolute; inset: 8px;
+  position: relative; min-height: 0;
   display: grid; grid-template-rows: minmax(0, 1fr) auto;
   border-radius: 2px; background: #000; outline: 1px solid var(--umd-line); outline-offset: -1px; overflow: hidden;
 }
@@ -447,12 +451,20 @@ details > summary::-webkit-details-marker { display: none; }
 .empty .tally { border-style: dashed; border-color: var(--wall-muted); }
 
 .tiles {
-  height: 100%;
+  min-height: 0;
   display: grid; gap: 8px;
   grid-template-columns: repeat(var(--cols, 1), minmax(0, 1fr));
   grid-auto-rows: minmax(0, 1fr);
 }
-.tiles:empty { display: none; }
+/* A fileira de baixo: monitores pequenos, no formato da imagem (16:9 + faixa de rótulo). */
+.tile-strip {
+  display: flex; gap: 8px; min-width: 0;
+  height: clamp(110px, 21vh, 190px); overflow-x: auto; overflow-y: hidden;
+}
+.tile-strip .tile { flex: none; height: 100%; aspect-ratio: 16 / 10.4; }
+.tile-strip .tile .reaction-bar,
+.tile-strip .tile .signal-text,
+.tile-strip .tile:not(.camera) .tile-label { display: none; }
 
 /* Cada tela é um monitor do multivisor: a imagem e, embaixo, a faixa de rótulo. */
 .tile {
@@ -468,7 +480,9 @@ details > summary::-webkit-details-marker { display: none; }
 .tile:focus-visible { outline-offset: -2px; }
 .tile-screen { position: relative; min-height: 0; overflow: hidden; }
 .tile video { display: block; width: 100%; height: 100%; object-fit: contain; background: #000; }
-.tile:fullscreen { border-radius: 0; }
+.tile:fullscreen { border-radius: 0; grid-template-rows: minmax(0, 1fr); }
+/* Em tela cheia só a imagem: a faixa de rótulo some (os controles continuam a aparecer com o mouse). */
+.tile:fullscreen .umd { display: none; }
 
 .umd {
   display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 10px;
@@ -488,7 +502,6 @@ details > summary::-webkit-details-marker { display: none; }
 .tile .tally { background: var(--accent); border-color: var(--accent); }
 .tile.waiting .tally { background: transparent; border-color: var(--wall-muted); border-style: dashed; }
 .tile.paused .tally { background: transparent; border-color: var(--warn); }
-.tile.unwatched .tally { background: transparent; border-color: var(--wall-faint); }
 /* A tela em destaque: moldura e faixa de rótulo acesas. */
 .tile.pinned::after { box-shadow: inset 0 0 0 2px var(--accent); }
 .tile.pinned .umd { background: var(--accent); border-top-color: var(--accent); color: var(--accent-text); }
@@ -501,9 +514,15 @@ details > summary::-webkit-details-marker { display: none; }
   position: absolute; inset: auto 0 0 0; z-index: 2;
   display: flex; align-items: center; gap: 8px; padding: 8px 10px;
   background: rgba(8, 8, 10, 0.82); border-top: 1px solid rgba(255, 255, 255, 0.06);
-  opacity: 0; transition: opacity 0.2s;
+  opacity: 0; pointer-events: none; transition: opacity 0.2s;
 }
-.tile:hover .tile-bar, .tile:focus-within .tile-bar { opacity: 1; }
+/* Os controles (barra e reações) aparecem quando o mouse mexe sobre a imagem e somem
+   depois de uns segundos parado (o app.js põe e tira .show-controls), levando o
+   cursor junto. Pelo teclado, ficam enquanto o foco estiver no monitor. */
+.tile.show-controls .tile-bar, .tile.show-controls .reaction-bar,
+.tile:focus-visible .tile-bar, .tile:focus-visible .reaction-bar,
+.tile:has(:focus-visible) .tile-bar, .tile:has(:focus-visible) .reaction-bar { opacity: 1; pointer-events: auto; }
+.tile.idle .tile-screen { cursor: none; }
 .tile-bar .icon-btn {
   width: 32px; height: 32px; border-color: transparent; color: #fff;
   background: rgba(255, 255, 255, 0.08); box-shadow: none;
@@ -539,24 +558,18 @@ details > summary::-webkit-details-marker { display: none; }
 /* Sobre o vídeo (sempre preto) a cor de destaque pode sumir: usa branco. */
 .tile-wait .spinner { border-color: rgba(255, 255, 255, 0.14); border-top-color: #fff; }
 .tile:not(.waiting) .tile-wait { display: none; }
-.tile-paused, .tile-unwatched {
+.tile-paused {
   position: absolute; inset: 0; display: none; place-content: center; justify-items: center; gap: 12px;
   padding: 16px; text-align: center; color: #fff; font: 600 15px/1.3 var(--label);
+  background: rgba(0, 0, 0, 0.8);
 }
-.tile-paused { background: rgba(0, 0, 0, 0.8); }
 .tile.paused .tile-paused { display: grid; }
 .tile-paused svg.i { width: 30px; height: 30px; color: var(--warn); }
-/* Parou de assistir: nada chega (nem imagem nem som) até clicar em "Assistir de novo". */
-.tile-unwatched { background: #000; color: var(--wall-text); }
-.tile-unwatched svg.i { width: 28px; height: 28px; color: var(--wall-muted); }
-.tile.unwatched .tile-unwatched { display: grid; }
-.tile.unwatched video { visibility: hidden; } /* sem o último quadro congelado ao fundo */
-.tile.unwatched .tile-paused, .tile.unwatched .tile-wait, .tile.unwatched .reaction-bar,
-.tile.unwatched .tile-signal, .tile.unwatched .tile-stats, .tile.unwatched .tile-bar { display: none; }
 /* Nas telas pequenas os avisos ficam compactos, sem o ícone. */
 @container (max-width: 380px) {
-  .tile-paused, .tile-unwatched { gap: 8px; padding: 8px; font-size: 13px; }
-  .tile-paused svg.i, .tile-unwatched svg.i { display: none; }
+  .tile-paused { gap: 8px; padding: 8px; font-size: 13px; }
+  .tile-paused svg.i { display: none; }
+  .tile-wait { gap: 8px; padding: 8px; font-size: 13px; text-align: center; }
 }
 
 .spinner {
@@ -567,29 +580,35 @@ details > summary::-webkit-details-marker { display: none; }
 .spinner.tiny { display: inline-block; width: 12px; height: 12px; border-width: 2px; vertical-align: -1px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* Destaque: a tela escolhida fica grande, as outras numa coluna ao lado. */
-/* Programa sobre as fontes: a tela em destaque ocupa a largura toda do palco e as
-   outras ficam numa fileira embaixo, no formato da imagem (16:9 + faixa de rótulo). */
-.tiles.has-spotlight {
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  grid-template-rows: minmax(0, 1fr);
-  grid-auto-rows: auto;
+/* Não assistindo: quem saiu do palco, numa fileira de teclas para voltar com um clique.
+   Tally apagado: a fonte está no ar, mas não no seu palco. */
+.offscreen { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.offscreen-label {
+  margin-right: 4px; color: var(--wall-muted);
+  font: 700 12px/1 var(--label); letter-spacing: 0.06em; text-transform: uppercase;
 }
-.tiles.has-spotlight .tile.pinned { grid-column: 1 / -1; grid-row: 1; }
-.tiles.has-spotlight .tile:not(.pinned) { aspect-ratio: 16 / 10.4; max-height: 22vh; }
-.tiles.has-spotlight .tile:not(.pinned) .reaction-bar { display: none; }
-/* Nas telas pequenas do destaque, só o nome e as barrinhas de sinal. */
-.tiles.has-spotlight .tile:not(.pinned) .signal-text,
-.tiles.has-spotlight .tile:not(.pinned) .tile-label { display: none; }
+.offscreen-chip {
+  display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px;
+  border-radius: 2px; border: 1px solid var(--umd-line); background: var(--umd); color: var(--wall-text);
+  font: 500 13px/1 var(--label); font-stretch: condensed; cursor: pointer;
+  transition: border-color 0.15s;
+}
+.offscreen-chip:hover { border-color: var(--wall-faint); }
+.offscreen-chip:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.offscreen-chip strong { font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: #fff; }
+.offscreen-chip .chip-kind { color: var(--wall-muted); }
+.offscreen-chip .chip-action { display: inline-flex; align-items: center; gap: 4px; padding-left: 8px; border-left: 1px solid var(--umd-line); }
+.offscreen-chip .chip-action svg.i { width: 14px; height: 14px; }
+.offscreen-chip .tally { background: transparent; border-color: var(--wall-faint); }
+.offscreen-chip .tally.paused { border-color: var(--warn); }
 
 /* Reações: emojis sobem pela tela de quem transmite. */
 .reaction-bar {
   position: absolute; left: 50%; bottom: 58px; z-index: 2; transform: translateX(-50%);
   display: flex; gap: 2px; padding: 3px; border-radius: 4px;
   background: rgba(8, 8, 10, 0.82); border: 1px solid rgba(255, 255, 255, 0.08);
-  opacity: 0; transition: opacity 0.2s;
+  opacity: 0; pointer-events: none; transition: opacity 0.2s;
 }
-.tile:hover .reaction-bar, .tile:focus-within .reaction-bar { opacity: 1; }
 .reaction-bar button {
   width: 34px; height: 34px; padding: 0; border: 0; border-radius: 3px;
   background: transparent; font-size: 20px; line-height: 1; transition: transform 0.12s, background-color 0.12s;
@@ -642,7 +661,9 @@ details > summary::-webkit-details-marker { display: none; }
 }
 .participant-main { flex: 1; min-width: 0; }
 .participant-name { display: flex; align-items: center; gap: 7px; min-width: 0; font-weight: 600; }
-.participant-name > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.participant-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.participant-cam { flex: none; display: inline-grid; color: var(--accent-ui); }
+.participant-cam svg.i { width: 15px; height: 15px; }
 .participant-name .tally { width: 8px; height: 8px; background: var(--accent); border-color: var(--accent); }
 .participant-name .tally.paused { background: transparent; border-color: var(--warn); }
 .participant-sub { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -672,6 +693,15 @@ details > summary::-webkit-details-marker { display: none; }
 .preview-wrap { position: relative; }
 #local-preview { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: contain; background: #000; }
 .share-live-info.umd { padding-block: 7px; }
+/* Sua câmera: espelhada só na prévia, como num espelho. */
+.camera-preview { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: contain; background: #000; transform: scaleX(-1); }
+.camera-info.umd { padding-block: 7px; }
+.camera-info .tally { background: var(--accent); border-color: var(--accent); }
+#camera-source { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--wall-muted); }
+#camera-off-btn { justify-self: start; width: fit-content; }
+/* A tecla da câmera acende como a luz de "no ar" enquanto a câmera está ligada. */
+.camera-btn[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.camera-btn[aria-pressed="true"]:hover { background: var(--accent-hover); }
 .share-live-info .tally { background: var(--accent); border-color: var(--accent); }
 .share-live.paused .share-live-info .tally { background: transparent; border-color: var(--warn); }
 #share-source { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--wall-text); }

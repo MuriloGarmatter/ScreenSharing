@@ -180,6 +180,45 @@ export function sendEncoding(settings, trackSettings, wanted) {
   return { scaleResolutionDownBy: scale, maxBitrate };
 }
 
+// ---------- Câmera ----------
+// Até 540p a 30 fps: rosto não precisa de mais, e cada pessoa assistindo é uma
+// compressão a mais no PC de quem liga a câmera.
+
+export const CAMERA_CONSTRAINTS = {
+  width: { ideal: 960 },
+  height: { ideal: 540 },
+  frameRate: { ideal: 30, max: 30 },
+};
+export const CAMERA_BITRATE = 900_000;
+const MIN_CAMERA_BITRATE = 250_000;
+
+/** Envio da câmera para uma pessoa: do tamanho em que ela mostra a câmera. */
+export function cameraEncoding(trackSettings, wanted) {
+  const scale = scaleForHeight(trackSettings?.height, wanted);
+  return {
+    scaleResolutionDownBy: scale,
+    maxBitrate: Math.max(MIN_CAMERA_BITRATE, Math.round(CAMERA_BITRATE / (scale * scale))),
+    maxFramerate: 30,
+  };
+}
+
+/** Mensagem amigável para os erros ao abrir a câmera. */
+export function cameraErrorMessage(err) {
+  switch (err?.name) {
+    case 'NotAllowedError':
+    case 'SecurityError':
+      return 'O Windows bloqueou a câmera. Em Configurações → Privacidade e segurança → Câmera, ligue "Permitir que aplicativos da área de trabalho acessem a câmera".';
+    case 'NotReadableError':
+    case 'AbortError':
+      return 'A câmera está sendo usada por outro programa (Discord, OBS, navegador…). Feche-o e tente de novo.';
+    case 'NotFoundError':
+    case 'OverconstrainedError':
+      return 'Nenhuma câmera encontrada. Confira se ela está conectada.';
+    default:
+      return `Não foi possível abrir a câmera: ${err?.message || err}`;
+  }
+}
+
 /**
  * FPS que vale de verdade. Sem compressão na placa de vídeo, cada pessoa assistindo
  * é uma compressão inteira no processador: com 2 ou mais, 60 fps trava o PC, e

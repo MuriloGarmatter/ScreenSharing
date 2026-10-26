@@ -151,3 +151,124 @@ test('sala cheia é recusada', async () => {
     await srv.close();
   }
 });
+
+test('TURN da Cloudflare: credenciais geradas, sem a porta 53 e com cache', async () => {
+  const { iceServersFromEnv, DEFAULT_ICE_SERVERS } = require('../server/protocol');
+  const realFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url, init });
+    return {
+      ok: true,
+      json: async () => ({
+        iceServers: [
+          { urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.cloudflare.com:53'] },
+          {
+            urls: [
+              'turn:turn.cloudflare.com:3478?transport=udp',
+              'turn:turn.cloudflare.com:53?transport=udp',
+              'turns:turn.cloudflare.com:443?transport=tcp',
+            ],
+            username: 'u', credential: 'c',
+          },
+        ],
+      }),
+    };
+  };
+  try {
+    const get = iceServersFromEnv({ CLOUDFLARE_TURN_KEY_ID: 'chave', CLOUDFLARE_TURN_API_TOKEN: 'segredo' });
+    const servers = await get();
+    assert.match(calls[0].url, /\/turn\/keys\/chave\/credentials\/generate-ice-servers$/);
+    assert.equal(calls[0].init.headers.Authorization, 'Bearer segredo');
+    assert.deepEqual(servers.slice(0, DEFAULT_ICE_SERVERS.length), DEFAULT_ICE_SERVERS);
+    const turn = servers.find((s) => s.username === 'u');
+    assert.deepEqual(turn.urls, ['turn:turn.cloudflare.com:3478?transport=udp', 'turns:turn.cloudflare.com:443?transport=tcp']);
+    assert.equal(turn.credential, 'c');
+    assert.ok(!JSON.stringify(servers).includes(':53'), 'nada na porta 53');
+    await get();
+    assert.equal(calls.length, 1, 'a segunda pessoa usa as credenciais guardadas');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('TURN da Cloudflare fora do ar: entra só com STUN', async () => {
+  const { iceServersFromEnv, DEFAULT_ICE_SERVERS } = require('../server/protocol');
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: false, status: 503 });
+  try {
+    const logs = [];
+    const servers = await iceServersFromEnv({ CLOUDFLARE_TURN_KEY_ID: 'k', CLOUDFLARE_TURN_API_TOKEN: 't' }, (m) => logs.push(m))();
+    assert.deepEqual(servers, DEFAULT_ICE_SERVERS);
+    assert.match(logs[0], /HTTP 503/);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('TURN: interruptor manual e teto mensal pelas estatísticas da conta', async () => {
+  const { iceServersFromEnv, DEFAULT_ICE_SERVERS } = require('../server/protocol');
+  const realFetch = globalThis.fetch;
+  let usedGb = 0;
+  let analyticsFails = false;
+  const calls = { turn: 0, graphql: [] };
+  globalThis.fetch = async (url, init) => {
+    if (String(url).includes('/graphql')) {
+      calls.graphql.push(JSON.parse(init.body));
+      if (analyticsFails) return { ok: false, status: 500 };
+      return { ok: true, json: async () => ({ data: { viewer: { accounts: [{ callsTurnUsageAdaptiveGroups: [{ sum: { egressBytes: usedGb * 1e9 } }] }] } } }) };
+    }
+    calls.turn += 1;
+    return { ok: true, json: async () => ({ iceServers: [{ urls: ['turn:turn.cloudflare.com:3478?transport=udp'], username: 'u', credential: 'c' }] }) };
+  };
+  const base = { CLOUDFLARE_TURN_KEY_ID: 'k', CLOUDFLARE_TURN_API_TOKEN: 't' };
+  const hasTurn = (servers) => servers.some((s) => s.username === 'u');
+  try {
+    // Interruptor: TURN=off (em qualquer grafia comum) = sem retransmissor, sem chamar a Cloudflare.
+    for (const off of ['off', 'OFF', 'desligado', '0', 'false', 'não']) {
+      assert.deepEqual(await iceServersFromEnv({ ...base, TURN: off })(), DEFAULT_ICE_SERVERS, `TURN=${off}`);
+    }
+    assert.equal(calls.turn, 0);
+    assert.ok(hasTurn(await iceServersFromEnv({ ...base, TURN: 'on' })()));
+    // O interruptor desliga também um retransmissor fixo (usuário e senha), como o ExpressTURN.
+    const fixedTurn = { TURN_URLS: 'turn:free.expressturn.com:3478?transport=udp', TURN_USERNAME: 'x', TURN_CREDENTIAL: 'y' };
+    assert.equal((await iceServersFromEnv(fixedTurn)()).length, DEFAULT_ICE_SERVERS.length + 1);
+    assert.deepEqual(await iceServersFromEnv({ ...fixedTurn, TURN: 'off' })(), DEFAULT_ICE_SERVERS);
+
+    // Teto: abaixo dele, com retransmissor; consulta o mês corrente.
+    const logs = [];
+    const capped = { ...base, CLOUDFLARE_ACCOUNT_ID: 'conta', CLOUDFLARE_ANALYTICS_TOKEN: 'leitura', TURN_LIMIT_GB: '100' };
+    usedGb = 40;
+    assert.ok(hasTurn(await iceServersFromEnv(capped, (m) => logs.push(m))()));
+    const vars = calls.graphql[0].variables;
+    assert.equal(vars.account, 'conta');
+    assert.match(vars.start, /^\d{4}-\d{2}-01$/);
+    assert.equal(vars.start.slice(0, 7), vars.end.slice(0, 7), 'só o mês corrente');
+
+    // Passou do teto: fica como sem retransmissor, e avisa uma vez.
+    usedGb = 100.5;
+    assert.deepEqual(await iceServersFromEnv(capped, (m) => logs.push(m))(), DEFAULT_ICE_SERVERS);
+    assert.match(logs.at(-1), /desligado até o mês que vem/);
+
+    // A resposta fica guardada: a segunda pessoa não gera outra consulta.
+    const get = iceServersFromEnv(capped);
+    await get();
+    const queries = calls.graphql.length;
+    await get();
+    assert.equal(calls.graphql.length, queries);
+
+    // Sem o teto padrão definido, vale 900 GB.
+    usedGb = 899;
+    assert.ok(hasTurn(await iceServersFromEnv({ ...capped, TURN_LIMIT_GB: undefined })()));
+    usedGb = 901;
+    assert.deepEqual(await iceServersFromEnv({ ...capped, TURN_LIMIT_GB: undefined })(), DEFAULT_ICE_SERVERS);
+
+    // Estatísticas fora do ar: um erro passageiro não desliga o retransmissor.
+    analyticsFails = true;
+    const failing = [];
+    assert.ok(hasTurn(await iceServersFromEnv(capped, (m) => failing.push(m))()));
+    assert.match(failing[0], /Falha ao consultar o uso do TURN: HTTP 500/);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});

@@ -6,7 +6,9 @@ import { createRequire } from 'node:module';
 import {
   QUALITY_PRESETS, effectiveFps, matchPreset, mungeRemoteSdp, pickCodec, resolveCodec, scaleForHeight,
   sendEncoding, startBitrateKbps, suggestLowerSettings, targetBitrate, videoConstraints, wantedHeight,
+  CAMERA_BITRATE, cameraEncoding, cameraErrorMessage,
 } from '../src/renderer/media.js';
+import { CAMERA_VERSION, supportsCamera } from '../src/renderer/mesh.js';
 import {
   PUBLIC_SERVER, deepLinkFor, inviteLink, parseDeepLink, parseInviteText, parseServerAddress,
 } from '../src/renderer/address.js';
@@ -337,6 +339,28 @@ test('servidor da Cloudflare: salas, repasse e faxina de quem caiu', async () =>
   lobby.webSocketError(dani);
   assert.equal(caio.sent.length - before, 2, 'peer-joined e um peer-left');
   assert.equal(last(caio).type, 'peer-left');
+});
+
+test('câmera: envio do tamanho em que cada um mostra, erros claros, só para versões novas', () => {
+  // Câmera em 540p: monitor grande recebe tudo; monitor pequeno (360p) recebe menos.
+  assert.deepEqual(cameraEncoding({ height: 540 }, 0), { scaleResolutionDownBy: 1, maxBitrate: CAMERA_BITRATE, maxFramerate: 30 });
+  const small = cameraEncoding({ height: 540 }, 360);
+  assert.equal(small.scaleResolutionDownBy, 1.5);
+  assert.ok(small.maxBitrate < CAMERA_BITRATE && small.maxBitrate >= 250_000);
+  assert.equal(cameraEncoding({ height: 540 }, 720).scaleResolutionDownBy, 1, 'nunca aumenta');
+  assert.equal(cameraEncoding(undefined, 360).scaleResolutionDownBy, 1);
+
+  assert.match(cameraErrorMessage({ name: 'NotAllowedError' }), /Privacidade/);
+  assert.match(cameraErrorMessage({ name: 'NotReadableError' }), /outro programa/);
+  assert.match(cameraErrorMessage({ name: 'NotFoundError' }), /Nenhuma câmera/);
+  assert.match(cameraErrorMessage(new Error('falhou')), /falhou/);
+
+  assert.equal(CAMERA_VERSION, '1.4.0');
+  assert.equal(supportsCamera({ state: { version: '1.4.0' } }), true);
+  assert.equal(supportsCamera({ state: { version: '1.10.2' } }), true);
+  assert.equal(supportsCamera({ state: { version: '1.3.0' } }), false, 'a 1.3 misturaria câmera e tela');
+  assert.equal(supportsCamera({ state: {} }), false);
+  assert.equal(supportsCamera(undefined), false);
 });
 
 test('predefinições de qualidade e H.264 automático', () => {

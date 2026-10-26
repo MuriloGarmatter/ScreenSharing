@@ -2,9 +2,9 @@ import {
   DEFAULT_PORT, PUBLIC_SERVER, inviteLink, parseDeepLink, parseInviteText, parseServerAddress,
 } from './address.js';
 import { AppAudioCapture, LevelMeter, exeLabel, routeAppAudioData, routeAppAudioEvent } from './app-audio.js';
-import { Mesh, REACTIONS } from './mesh.js';
+import { Mesh, REACTIONS, supportsCamera } from './mesh.js';
 import {
-  AUDIO_CONSTRAINTS, BITRATES, CODECS, DEFAULT_SHARE_SETTINGS, FRAME_RATES, OPTIMIZE, QUALITY_PRESETS, RESOLUTIONS,
+  AUDIO_CONSTRAINTS, BITRATES, CAMERA_CONSTRAINTS, CODECS, cameraErrorMessage, DEFAULT_SHARE_SETTINGS, FRAME_RATES, OPTIMIZE, QUALITY_PRESETS, RESOLUTIONS,
   detectHardwareH264, effectiveFps, matchPreset, presetSpec, resolveCodec, suggestLowerSettings, targetBitrate,
   videoConstraints, wantedHeight,
 } from './media.js';
@@ -32,15 +32,17 @@ const state = {
   serverUrl: '',
   hosting: null, // { port, addresses, publicUrl, tunnel: 'off'|'starting'|'on'|'missing'|'error', tunnelError, download }
   share: null, // { stream, source, audio, audioMode: 'all'|'app'|'pick'|'system'|'none', appAudio, meter, preview, paused }
+  camera: null, // { stream, track }: a minha câmera, ligada
+  cameraStarting: false,
   starting: null, // marca do início de transmissão em andamento (sair da sala a invalida)
   pendingInvite: null, // convite clicado enquanto ainda conectava: abre quando a tentativa termina
   meterTimer: null,
   clockTimer: null, // relógio do tempo no ar
-  tiles: new Map(), // peerId -> tile
+  tiles: new Map(), // peerId (tela) ou peerId:cam (câmera) -> monitor
   trackers: new Map(), // peerId -> StatsTracker
   statsTimer: null,
   picker: { sources: [], tab: 'screen', selected: null, windowThumbs: false, loads: 0 },
-  pinned: null, // peerId da tela em destaque
+  pinned: null, // chave do monitor em destaque
   sharingPeers: new Set(), // quem está transmitindo (para avisar quando alguém começa)
   lastAnnounce: new Map(), // peerId -> hora do último aviso "começou a transmitir"
   hwH264: false, // a placa de vídeo comprime H.264?
@@ -87,6 +89,7 @@ function loadPrefs() {
     lastShare: null, // { id, type, name, audio }: para o atalho começar direto
     copiedInvites: [], // convites que eu mesmo copiei (não viram a faixa "você copiou um convite")
     consoleHidden: false, // painel da sala (coluna da direita) recolhido
+    cameraId: '', // a última câmera usada
   };
   try {
     const saved = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}');
@@ -373,13 +376,15 @@ function wireMesh(mesh) {
     renderParticipants();
     refreshShareSettings();
     updateBitrateHint();
+    if (state.camera) renderCameraUi(); // quem chegou numa versão antiga não vê a câmera
     if (state.inRoom && !silent) toast(`${peer.name} entrou na sala.`);
   });
   on('peer-left', ({ peer, silent }) => {
     state.sharingPeers.delete(peer.id);
-    removeTile(peer.id);
+    removePeerTiles(peer.id);
     state.trackers.delete(peer.id);
     renderParticipants();
+    if (state.camera) renderCameraUi(); // o aviso de quem não vê a câmera pode ter mudado
     renderOutgoing();
     refreshShareSettings();
     updateBitrateHint();
@@ -399,11 +404,17 @@ function wireMesh(mesh) {
     syncTile(peer);
     renderParticipants();
   });
-  on('remote-track', ({ peer }) => syncTile(peer, true));
+  on('remote-track', ({ peer }) => syncTile(peer));
   on('remote-media', ({ peer }) => updateTileWaiting(peer));
+  // Alguém ligou ou desligou a câmera.
+  on('camera', ({ peer }) => {
+    syncTile(peer);
+    renderParticipants();
+  });
   on('reaction', showReaction);
   on('connection', ({ peer }) => {
     renderParticipants();
+    updateTileWaiting(peer);
     if (peer.pc.connectionState === 'failed') {
       toast(`Sem conexão direta com ${peer.name}. Tentando de novo…`, 'warn');
     }
@@ -449,6 +460,7 @@ function enterRoom() {
   setServerStatus(true);
   renderInvite();
   renderShareUi();
+  renderCameraUi();
   for (const peer of state.mesh.peers.values()) syncTile(peer);
   layoutTiles();
   clearInterval(state.statsTimer);
@@ -463,6 +475,7 @@ async function leaveRoom(force = false) {
     if (!ok) return;
   }
   stopShare();
+  stopCamera();
   state.starting = null; // uma transmissão começando agora não vai para a próxima sala
   const mesh = state.mesh;
   state.mesh = null;
@@ -470,7 +483,7 @@ async function leaveRoom(force = false) {
   mesh.leave();
   clearInterval(state.statsTimer);
   state.statsTimer = null;
-  for (const id of [...state.tiles.keys()]) removeTile(id);
+  for (const key of [...state.tiles.keys()]) removeTile(key, false);
   state.trackers.clear();
   state.sharingPeers.clear();
   state.pinned = null;
@@ -677,15 +690,21 @@ function avatar(name) {
   return el('span', { class: 'avatar' }, (name.trim()[0] || '?').toUpperCase());
 }
 
-/** onAir: null (não transmite), 'live' ou 'paused': o tally aceso ao lado do nome. */
-function participantItem(name, sub, pill, onAir = null) {
+/**
+ * onAir: null (não transmite), 'live' ou 'paused': o tally aceso ao lado do nome.
+ * camera: câmera ligada (um ícone depois do nome).
+ */
+function participantItem(name, sub, pill, onAir = null, camera = false) {
   const tally = onAir
     ? el('span', { class: `tally${onAir === 'paused' ? ' paused' : ''}`, title: onAir === 'paused' ? 'Pausado' : 'No ar' })
+    : null;
+  const cam = camera
+    ? el('span', { class: 'participant-cam', role: 'img', title: 'Câmera ligada', 'aria-label': 'câmera ligada', html: icon('camera') })
     : null;
   return el('li', { class: 'participant' },
     avatar(name),
     el('div', { class: 'participant-main' },
-      el('div', { class: 'participant-name', title: name }, tally, el('span', {}, name)),
+      el('div', { class: 'participant-name', title: name }, tally, el('span', { class: 'participant-label' }, name), cam),
       el('div', { class: 'participant-sub', title: sub }, sub)),
     pill);
 }
@@ -719,26 +738,37 @@ function renderParticipants() {
     ? el('span', { class: state.share.paused ? 'pill warn' : 'pill live' }, state.share.paused ? 'Pausado' : 'No ar')
     : null;
   const myAir = state.share ? (state.share.paused ? 'paused' : 'live') : null;
-  const items = [participantItem(`${mesh.name} (você)`, mine, myPill, myAir)];
+  const items = [participantItem(`${mesh.name} (você)`, mine, myPill, myAir, Boolean(state.camera))];
   // Quem está numa versão antiga (as melhorias de CPU só valem com todos atualizados).
   const outdated = outdatedPeers(state.info.version,
     [...mesh.peers.values()].map((p) => ({ id: p.id, version: p.state.version })),
     mesh.serverFeatures.includes('version'));
   for (const peer of mesh.peers.values()) {
-    let sub = 'Na sala';
+    const parts = [];
     if (peer.state.sharing) {
-      sub = `${peer.state.paused ? 'Pausado' : 'Transmitindo'}: ${peer.state.label || 'tela'}${peer.state.audio ? ' · com som' : ''}`;
-      if (state.tiles.get(peer.id)?.watching === false) sub += ' · você parou de assistir';
+      let text = `${peer.state.paused ? 'Pausado' : 'Transmitindo'}: ${peer.state.label || 'tela'}${peer.state.audio ? ' · com som' : ''}`;
+      if (state.tiles.get(tileKey(peer.id, 'screen'))?.watching === false) text += ' · você parou de assistir';
+      parts.push(text);
     }
+    if (peer.remoteCameraId && state.tiles.get(tileKey(peer.id, 'camera'))?.watching === false) {
+      parts.push('câmera: você parou de assistir');
+    }
+    let sub = parts.join(' · ') || 'Na sala';
     if (outdated.has(peer.id)) sub += ' · versão antiga do Telão';
     const air = peer.state.sharing ? (peer.state.paused ? 'paused' : 'live') : null;
-    items.push(participantItem(peer.name, sub, connectionPill(peer), air));
+    items.push(participantItem(peer.name, sub, connectionPill(peer), air, Boolean(peer.remoteCameraId)));
   }
   $('#participants').replaceChildren(...items);
   $('#participant-count').textContent = String(items.length);
 }
 
 // ---------- Telas recebidas ----------
+// Cada pessoa pode ter dois monitores no multivisor: a tela que ela transmite
+// (chave = o id dela) e a câmera (chave = id + ":cam"). Quem você parou de
+// assistir sai do palco e fica na fileira "Não assistindo", embaixo.
+
+const tileKey = (peerId, kind) => (kind === 'camera' ? `${peerId}:cam` : peerId);
+const CONTROLS_IDLE_MS = 2500; // mouse parado em cima da imagem: os controles somem
 
 function rememberVolume(tile) {
   const volumes = { ...(prefs.volumes || {}) };
@@ -759,45 +789,79 @@ async function togglePictureInPicture(tile) {
   }
 }
 
-function createTile(peer) {
+/**
+ * Controles por cima da imagem (barra de baixo e reações): aparecem quando o mouse
+ * mexe e somem depois de um tempo parado, levando o cursor junto. Pelo teclado
+ * (Tab) eles ficam à vista enquanto o foco estiver neles (ver o CSS).
+ */
+function setupControls(tile) {
+  const { root } = tile;
+  let timer = 0;
+  let holding = false; // mouse em cima dos controles: não somem
+  const show = () => {
+    root.classList.add('show-controls');
+    root.classList.remove('idle');
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      if (holding) return show();
+      root.classList.remove('show-controls');
+      root.classList.add('idle');
+    }, CONTROLS_IDLE_MS);
+  };
+  root.addEventListener('pointermove', show);
+  root.addEventListener('pointerdown', show);
+  root.addEventListener('pointerleave', () => {
+    clearTimeout(timer);
+    root.classList.remove('show-controls', 'idle');
+  });
+  for (const bar of root.querySelectorAll('.tile-bar, .reaction-bar')) {
+    bar.addEventListener('pointerenter', () => { holding = true; });
+    bar.addEventListener('pointerleave', () => { holding = false; });
+  }
+}
+
+function createTile(peer, kind) {
+  const camera = kind === 'camera';
+  const key = tileKey(peer.id, kind);
+  const who = camera ? `a câmera de ${peer.name}` : peer.name;
   const video = el('video', { playsinline: true, autoplay: true });
+  // A câmera não tem som: o vídeo dela fica sempre mudo (o atributo "muted" posto
+  // por script não muda a propriedade; só no HTML).
+  video.muted = camera;
   const name = el('span', { class: 'tile-name' });
   const label = el('span', { class: 'tile-label' });
   const signal = el('span', { class: 'tile-signal' });
-  const stats = el('div', { class: 'tile-stats', hidden: true }, 'Aguardando dados…');
+  const waitText = el('span', {}, 'Conectando à transmissão…');
+  const stats = camera ? null : el('div', { class: 'tile-stats', hidden: true }, 'Aguardando dados…');
   const pausedText = el('span');
-  const paused = el('div', { class: 'tile-paused', html: icon('pause') }, pausedText);
-  const unwatchedText = el('span');
-  const resumeBtn = el('button', { type: 'button', class: 'btn small primary' }, 'Assistir de novo');
-  const unwatched = el('div', { class: 'tile-unwatched', html: icon('eye-off') }, unwatchedText, resumeBtn);
+  const paused = camera ? null : el('div', { class: 'tile-paused', html: icon('pause') }, pausedText);
   // Sem aria-live aqui: o leitor de tela anunciaria cada emoji (inclusive os seus).
-  const reactions = el('div', { class: 'reactions-layer' });
-  const muteBtn = el('button', { class: 'icon-btn', title: 'Silenciar', 'aria-label': 'Silenciar' });
-  const volume = el('input', { type: 'range', min: '0', max: '1', step: '0.05', value: '1', title: 'Volume', 'aria-label': `Volume de ${peer.name}` });
-  const pinBtn = el('button', { class: 'icon-btn', title: 'Destacar esta tela', 'aria-label': 'Destacar esta tela', 'aria-pressed': 'false', html: icon('pin') });
+  const reactions = camera ? null : el('div', { class: 'reactions-layer' });
+  const muteBtn = camera ? null : el('button', { class: 'icon-btn', title: 'Silenciar', 'aria-label': 'Silenciar' });
+  const volume = camera ? null : el('input', { type: 'range', min: '0', max: '1', step: '0.05', value: '1', title: 'Volume', 'aria-label': `Volume de ${peer.name}` });
+  const pinBtn = el('button', { class: 'icon-btn', title: 'Destacar', 'aria-label': `Destacar ${who}`, 'aria-pressed': 'false', html: icon('pin') });
   const pipBtn = el('button', {
     class: 'icon-btn pip-btn', title: 'Janelinha flutuante: fica por cima dos outros programas',
     'aria-label': 'Abrir em janelinha flutuante', 'aria-pressed': 'false', html: icon('pip'),
   });
-  const infoBtn = el('button', { class: 'icon-btn info-btn', title: 'Estatísticas da transmissão', 'aria-label': 'Estatísticas da transmissão', html: icon('info') });
+  const infoBtn = camera ? null : el('button', { class: 'icon-btn info-btn', title: 'Estatísticas da transmissão', 'aria-label': 'Estatísticas da transmissão', html: icon('info') });
   const fullBtn = el('button', { class: 'icon-btn full-btn', title: 'Tela cheia (ou duplo clique)', 'aria-label': 'Tela cheia', html: icon('maximize') });
   const watchBtn = el('button', {
-    class: 'icon-btn watch-btn', title: 'Parar de assistir (economiza processador e internet dos dois lados)',
-    'aria-label': `Parar de assistir ${peer.name}`, html: icon('eye-off'),
+    class: 'icon-btn watch-btn', title: 'Parar de assistir: sai do palco e economiza processador e internet dos dois lados',
+    'aria-label': `Parar de assistir ${who}`, html: icon('eye-off'),
   });
-  const reactionBar = el('div', { class: 'reaction-bar', role: 'group', 'aria-label': `Reagir à tela de ${peer.name}` },
+  const reactionBar = camera ? null : el('div', { class: 'reaction-bar', role: 'group', 'aria-label': `Reagir à tela de ${peer.name}` },
     ...REACTIONS.map((emoji) => el('button', {
       type: 'button', title: `Reagir com ${emoji}`, 'aria-label': `Reagir com ${emoji}`,
       onclick: () => sendReaction(peer.id, emoji),
     }, emoji)));
   // Um monitor do multivisor: a imagem (com os controles por cima) e, embaixo, a faixa
   // de rótulo com o tally (aceso = no ar, tracejado = conectando, âmbar = pausado).
-  const root = el('div', { class: 'tile waiting', tabindex: '0', dataset: { peer: peer.id } },
+  const root = el('div', { class: `tile waiting${camera ? ' camera' : ''}`, tabindex: '0', dataset: { peer: peer.id, key } },
     el('div', { class: 'tile-screen' },
       video,
-      el('div', { class: 'tile-wait' }, el('div', { class: 'spinner' }), el('span', {}, 'Conectando à transmissão…')),
+      el('div', { class: 'tile-wait' }, el('div', { class: 'spinner' }), waitText),
       paused,
-      unwatched,
       reactions,
       stats,
       reactionBar,
@@ -805,35 +869,41 @@ function createTile(peer) {
     el('div', { class: 'umd' }, el('span', { class: 'tally', 'aria-hidden': 'true' }), name, label, signal));
 
   const tile = {
-    root, video, name, label, signal, stats, pausedText, unwatchedText, resumeBtn, watchBtn, reactions,
+    key, peerId: peer.id, kind, root, video, name, label, signal, waitText, stats, pausedText, watchBtn, reactions,
     muteBtn, volume, pinBtn, pipBtn,
-    userMuted: false, peerName: peer.name,
-    watching: true, // false = parou de assistir: nada chega dessa pessoa
+    userMuted: false, peerName: peer.name, trackSig: '',
+    watching: true, // false = parou de assistir: nada chega e o monitor sai do palco
   };
-  watchBtn.addEventListener('click', () => setWatching(peer.id, false));
-  resumeBtn.addEventListener('click', () => setWatching(peer.id, true));
-  // O tamanho em que a tela aparece decide a resolução pedida a quem transmite.
+  watchBtn.addEventListener('click', () => setWatching(key, false));
+  // O tamanho em que a imagem aparece decide a resolução pedida a quem transmite.
   state.resizeObserver?.observe(video);
-  // O volume de cada pessoa fica lembrado entre as sessões.
-  const saved = prefs.volumes?.[peer.name];
-  if (saved && Number.isFinite(saved.volume)) {
-    volume.value = String(saved.volume);
-    video.volume = Math.min(1, Math.max(0, saved.volume));
-    tile.userMuted = saved.muted === true;
+  if (!camera) {
+    // O volume de cada pessoa fica lembrado entre as sessões.
+    const saved = prefs.volumes?.[peer.name];
+    if (saved && Number.isFinite(saved.volume)) {
+      volume.value = String(saved.volume);
+      video.volume = Math.min(1, Math.max(0, saved.volume));
+      tile.userMuted = saved.muted === true;
+    }
+    volume.addEventListener('input', () => {
+      video.volume = Number(volume.value);
+      if (video.volume > 0) tile.userMuted = false;
+      rememberVolume(tile);
+      applyAudioRouting();
+    });
+    muteBtn.addEventListener('click', () => {
+      tile.userMuted = !tile.userMuted;
+      rememberVolume(tile);
+      applyAudioRouting();
+    });
+    infoBtn.addEventListener('click', () => {
+      stats.hidden = !stats.hidden;
+      infoBtn.classList.toggle('active', !stats.hidden);
+      renderTileStats(state.mesh?.peers.get(peer.id));
+    });
   }
-  volume.addEventListener('input', () => {
-    video.volume = Number(volume.value);
-    if (video.volume > 0) tile.userMuted = false;
-    rememberVolume(tile);
-    applyAudioRouting();
-  });
-  muteBtn.addEventListener('click', () => {
-    tile.userMuted = !tile.userMuted;
-    rememberVolume(tile);
-    applyAudioRouting();
-  });
   pinBtn.addEventListener('click', () => {
-    state.pinned = state.pinned === peer.id ? null : peer.id;
+    state.pinned = state.pinned === key ? null : key;
     layoutTiles();
   });
   pipBtn.hidden = !document.pictureInPictureEnabled;
@@ -846,20 +916,15 @@ function createTile(peer) {
     pipBtn.setAttribute('aria-pressed', 'false');
     syncViews();
   });
-  infoBtn.addEventListener('click', () => {
-    stats.hidden = !stats.hidden;
-    infoBtn.classList.toggle('active', !stats.hidden);
-    renderTileStats(state.mesh?.peers.get(peer.id));
-  });
   const toggleFullscreen = () => {
     if (document.fullscreenElement === root) document.exitFullscreen();
     else root.requestFullscreen().catch(() => {});
   };
   fullBtn.addEventListener('click', toggleFullscreen);
-  // Clicar numa tela a destaca (o 📌 desfaz); dois cliques abrem a tela cheia.
+  // Clicar numa imagem a destaca (o 📌 desfaz); dois cliques abrem a tela cheia.
   video.addEventListener('click', () => {
-    if (state.tiles.size < 2 || state.pinned === peer.id) return;
-    state.pinned = peer.id;
+    if (watchedTiles().length < 2 || state.pinned === key) return;
+    state.pinned = key;
     layoutTiles();
   });
   video.addEventListener('dblclick', toggleFullscreen);
@@ -869,56 +934,89 @@ function createTile(peer) {
       if (current) updateTileWaiting(current);
     });
   }
+  setupControls(tile);
   return tile;
 }
 
-function syncTile(peer, tracksChanged = false) {
+const watchedTiles = () => [...state.tiles.values()].filter((t) => t.watching);
+
+/** Cria, atualiza ou tira os monitores de uma pessoa (tela e câmera). */
+function syncTile(peer) {
   if (!state.mesh) return;
-  let tile = state.tiles.get(peer.id);
-  if (!peer.state.sharing) {
-    if (tile) removeTile(peer.id);
-    return;
-  }
-  if (!tile) {
-    tile = createTile(peer);
-    state.tiles.set(peer.id, tile);
-    $('#tiles').append(tile.root);
-    tracksChanged = true;
-  }
-  tile.name.textContent = peer.name;
-  tile.label.textContent = peer.state.label ? `${peer.state.label}${peer.state.audio ? ' · com som' : ''}` : '';
-  tile.root.classList.toggle('paused', peer.state.paused === true);
-  tile.pausedText.textContent = `${peer.name} pausou a transmissão`;
-  tile.unwatchedText.textContent = `Você parou de assistir ${peer.name}`;
-  if (tracksChanged) {
-    tile.video.srcObject = null;
-    tile.video.srcObject = peer.remoteStream;
-    tile.video.play().catch(() => {});
-  }
+  syncOneTile(peer, 'screen', peer.state.sharing === true, peer.remoteStream);
+  syncOneTile(peer, 'camera', Boolean(peer.remoteCameraId), peer.cameraStream);
   updateTileWaiting(peer);
   applyAudioRouting();
   layoutTiles();
 }
 
-function removeTile(peerId) {
-  const tile = state.tiles.get(peerId);
+function syncOneTile(peer, kind, on, stream) {
+  const key = tileKey(peer.id, kind);
+  let tile = state.tiles.get(key);
+  if (!on) {
+    if (tile) removeTile(key, false);
+    return;
+  }
+  if (!tile) {
+    tile = createTile(peer, kind);
+    state.tiles.set(key, tile);
+    $('#tiles').append(tile.root);
+  }
+  tile.name.textContent = peer.name;
+  if (kind === 'camera') {
+    tile.label.textContent = 'câmera';
+  } else {
+    tile.label.textContent = peer.state.label ? `${peer.state.label}${peer.state.audio ? ' · com som' : ''}` : '';
+    tile.root.classList.toggle('paused', peer.state.paused === true);
+    tile.pausedText.textContent = `${peer.name} pausou a transmissão`;
+  }
+  // Só religa o vídeo quando as faixas mudaram (religar à toa pisca a imagem).
+  const sig = stream.getTracks().map((t) => t.id).join(',');
+  if (tile.trackSig !== sig) {
+    tile.trackSig = sig;
+    tile.video.srcObject = null;
+    tile.video.srcObject = stream;
+    tile.video.play().catch(() => {});
+  }
+}
+
+function removeTile(key, relayout = true) {
+  const tile = state.tiles.get(key);
   if (!tile) return;
   if (document.fullscreenElement === tile.root) document.exitFullscreen().catch(() => {});
   if (document.pictureInPictureElement === tile.video) document.exitPictureInPicture().catch(() => {});
   state.resizeObserver?.unobserve(tile.video);
   tile.video.srcObject = null;
   tile.root.remove();
-  state.tiles.delete(peerId);
-  if (state.pinned === peerId) state.pinned = null;
+  state.tiles.delete(key);
+  if (state.pinned === key) state.pinned = null;
+  if (relayout) layoutTiles();
+}
+
+function removePeerTiles(peerId) {
+  removeTile(tileKey(peerId, 'screen'), false);
+  removeTile(tileKey(peerId, 'camera'), false);
   layoutTiles();
 }
 
+/** O que aparece enquanto a imagem não chega: diz quando o problema é a conexão. */
+function waitMessage(peer) {
+  const conn = peer.pc.connectionState;
+  if (conn === 'failed') return `Sem conexão direta com ${peer.name}. Tentando de novo…`;
+  if (conn !== 'connected') return `Conectando com ${peer.name}…`;
+  return 'Conectando à transmissão…';
+}
+
 function updateTileWaiting(peer) {
-  const tile = state.tiles.get(peer.id);
-  if (!tile) return;
-  const track = peer.remoteStream.getVideoTracks()[0];
-  const waiting = !track || track.muted || track.readyState === 'ended' || tile.video.videoWidth === 0;
-  tile.root.classList.toggle('waiting', waiting && peer.state.paused !== true && tile.watching);
+  for (const [kind, stream] of [['screen', peer.remoteStream], ['camera', peer.cameraStream]]) {
+    const tile = state.tiles.get(tileKey(peer.id, kind));
+    if (!tile) continue;
+    const track = stream.getVideoTracks()[0];
+    const waiting = !track || track.muted || track.readyState === 'ended' || tile.video.videoWidth === 0;
+    const paused = kind === 'screen' && peer.state.paused === true;
+    tile.root.classList.toggle('waiting', waiting && !paused && tile.watching);
+    tile.waitText.textContent = waitMessage(peer);
+  }
 }
 
 // ---------- O que receber de cada pessoa ----------
@@ -926,10 +1024,10 @@ function updateTileWaiting(peer) {
 // assistir = nada; Telão escondido = só o som; e a imagem na altura em que a tela
 // aparece aqui. Quem transmite comprime menos (ou nada) e quem assiste descomprime menos.
 
-const FULL_VIEW = { video: true, audio: true, height: 0 };
+const FULL_VIEW = { video: true, audio: true, height: 0, camera: true, camHeight: 0 };
 const HIDDEN_PAUSE_MS = 5000; // escondido por mais que isso: para de receber a imagem
 
-/** Altura (em pixels da tela) em que o vídeo de uma tela aparece de verdade. */
+/** Altura (em pixels da tela) em que o vídeo de um monitor aparece de verdade. */
 function shownHeight(tile) {
   if (document.fullscreenElement === tile.root) return Infinity;
   const box = tile.video.getBoundingClientRect();
@@ -939,13 +1037,24 @@ function shownHeight(tile) {
   return Math.min(box.height, box.width / aspect) * (window.devicePixelRatio || 1);
 }
 
-function desiredView(peer) {
-  const tile = state.tiles.get(peer.id);
-  if (!tile) return FULL_VIEW;
+/** O que um monitor pede: { video, audio, height }. */
+function tileView(tile) {
   if (!tile.watching) return { video: false, audio: false, height: 0 };
   const floating = document.pictureInPictureElement === tile.video;
   if (state.hiddenLong && !floating) return { video: false, audio: true, height: 0 };
   return { video: true, audio: true, height: floating ? 0 : wantedHeight(shownHeight(tile)) };
+}
+
+function desiredView(peer) {
+  const view = { ...FULL_VIEW };
+  const screen = state.tiles.get(tileKey(peer.id, 'screen'));
+  if (screen) Object.assign(view, tileView(screen));
+  const camera = state.tiles.get(tileKey(peer.id, 'camera'));
+  if (camera) {
+    const { video, height } = tileView(camera);
+    Object.assign(view, { camera: video, camHeight: height });
+  }
+  return view;
 }
 
 function syncViews() {
@@ -961,45 +1070,99 @@ function scheduleViewSync() {
   state.viewTimer = setTimeout(syncViews, 400);
 }
 
-/** Parar de assistir (ou voltar a assistir) a transmissão de alguém. */
-function setWatching(peerId, watching) {
-  const tile = state.tiles.get(peerId);
+/** Parar de assistir (ou voltar a assistir) a tela ou a câmera de alguém. */
+function setWatching(key, watching) {
+  const tile = state.tiles.get(key);
   if (!tile || tile.watching === watching) return;
   tile.watching = watching;
-  tile.root.classList.toggle('unwatched', !watching);
   if (!watching) {
     if (document.pictureInPictureElement === tile.video) document.exitPictureInPicture().catch(() => {});
     if (document.fullscreenElement === tile.root) document.exitFullscreen().catch(() => {});
-    tile.resumeBtn.focus();
-  } else {
-    tile.root.focus();
+    if (state.pinned === key) state.pinned = null;
   }
-  const peer = state.mesh?.peers.get(peerId);
+  const peer = state.mesh?.peers.get(tile.peerId);
   if (peer) updateTileWaiting(peer);
   applyAudioRouting();
+  layoutTiles();
   syncViews();
   renderParticipants();
+  // O foco vai junto: para o botão de voltar (na fileira de baixo) ou para o monitor.
+  const target = watching ? tile.root : $(`#offscreen [data-key="${CSS.escape(key)}"]`);
+  target?.focus();
 }
 
+/**
+ * Arranjo do palco. Só os monitores assistidos aparecem. Com destaque, o escolhido
+ * fica no palco e os outros na fileira de baixo; sem destaque e com telas no ar,
+ * as câmeras vão para a fileira (rosto não precisa do palco todo).
+ */
 function layoutTiles() {
-  const count = state.tiles.size;
-  $('#empty-stage').hidden = count > 0;
+  const all = [...state.tiles.values()];
+  const watched = all.filter((t) => t.watching);
+  const unwatched = all.filter((t) => !t.watching);
+  const pinned = watched.length > 1 ? watched.find((t) => t.key === state.pinned) || null : null;
+  const screens = watched.filter((t) => t.kind === 'screen');
+  let main = watched;
+  if (pinned) main = [pinned];
+  else if (screens.length && screens.length < watched.length) main = screens;
+  const strip = watched.filter((t) => !main.includes(t));
+
   const tiles = $('#tiles');
-  // Multivisor: as colunas que deixam cada imagem maior no palco (descontando o respiro de 8 px).
-  const stage = $('#stage');
-  tiles.style.setProperty('--cols', String(bestColumns(count, stage.clientWidth - 16, stage.clientHeight - 16)));
-  // Destaque: a tela escolhida fica grande e as outras numa coluna ao lado.
-  const pinned = count > 1 && state.tiles.has(state.pinned) ? state.pinned : null;
-  tiles.classList.toggle('has-spotlight', Boolean(pinned));
-  tiles.style.setProperty('--others', String(Math.max(1, count - 1)));
-  for (const [id, tile] of state.tiles) {
-    tile.root.classList.toggle('pinned', id === pinned);
-    tile.pinBtn.setAttribute('aria-pressed', String(id === state.pinned));
-    tile.pinBtn.hidden = count < 2;
-    tile.pinBtn.title = id === state.pinned ? 'Tirar o destaque' : 'Destacar esta tela';
-  }
+  const row = $('#tile-strip');
+  all.forEach((tile, index) => {
+    tile.root.hidden = !tile.watching;
+    tile.root.style.order = String(index); // a ordem de chegada, onde quer que o monitor esteja
+    const parent = strip.includes(tile) ? row : tiles;
+    // Mudar de lugar tira o monitor da página por um instante, e isso fecharia a
+    // tela cheia: o monitor em tela cheia fica onde está.
+    const fullscreen = document.fullscreenElement === tile.root;
+    if (tile.watching && !fullscreen && tile.root.parentElement !== parent) parent.append(tile.root);
+    tile.root.classList.toggle('pinned', tile === pinned);
+    tile.pinBtn.setAttribute('aria-pressed', String(tile === pinned));
+    tile.pinBtn.hidden = watched.length < 2;
+    tile.pinBtn.title = tile === pinned ? 'Tirar o destaque' : 'Destacar';
+  });
+  tiles.hidden = main.length === 0;
+  row.hidden = strip.length === 0;
+  renderOffscreen(unwatched);
+  $('#empty-stage').hidden = watched.length > 0;
+  $('#empty-idle').hidden = unwatched.length > 0;
+  $('#empty-unwatched').hidden = unwatched.length === 0;
+  $('#empty-title').textContent = unwatched.length ? 'Você não está assistindo ninguém' : 'Ninguém está transmitindo';
+  // Multivisor: as colunas que deixam cada imagem maior no espaço que sobrou.
+  tiles.style.setProperty('--cols', String(bestColumns(main.length, tiles.clientWidth, tiles.clientHeight)));
   updateKeepAwake();
-  scheduleViewSync(); // o tamanho de cada tela mudou
+  scheduleViewSync(); // o tamanho de cada imagem mudou
+}
+
+/** "Não assistindo": quem você parou de assistir, para voltar com um clique. */
+function renderOffscreen(unwatched) {
+  const box = $('#offscreen');
+  const peers = state.mesh?.peers;
+  const items = unwatched.map((tile) => ({
+    tile,
+    paused: tile.kind === 'screen' && peers?.get(tile.peerId)?.state.paused === true,
+  }));
+  // Refaz só quando muda: refazer à toa tiraria o foco de quem usa o teclado.
+  const sig = items.map(({ tile, paused }) => `${tile.key}|${tile.peerName}|${paused}`).join('/');
+  box.hidden = items.length === 0;
+  if (box.dataset.sig === sig) return;
+  box.dataset.sig = sig;
+  box.replaceChildren(
+    el('span', { class: 'offscreen-label' }, 'Não assistindo'),
+    ...items.map(({ tile, paused }) => {
+      const camera = tile.kind === 'camera';
+      return el('button', {
+        type: 'button', class: 'offscreen-chip', dataset: { key: tile.key },
+        title: `Voltar a assistir ${camera ? `a câmera de ${tile.peerName}` : tile.peerName}`,
+        onclick: () => setWatching(tile.key, true),
+      },
+      el('span', { class: `tally${paused ? ' paused' : ''}`, 'aria-hidden': 'true' }),
+      el('strong', {}, tile.peerName),
+      el('span', { class: 'chip-kind' }, camera ? 'câmera' : 'tela'),
+      el('span', { class: 'chip-action', html: `${icon('eye')}Assistir` }));
+    }),
+  );
 }
 
 // ---------- Atualização ----------
@@ -1058,6 +1221,7 @@ function applyAudioRouting() {
   // "sem filtro" o som dos outros precisa ser silenciado enquanto você transmite.
   const echoGuard = Boolean(state.share?.audioMode === 'system' && prefs.antiEcho);
   for (const tile of state.tiles.values()) {
+    if (tile.kind !== 'screen') continue; // a câmera não tem som
     // Parou de assistir: silencia aqui também (quem transmite numa versão antiga
     // não entende o pedido e continuaria mandando o som).
     const muted = tile.userMuted || echoGuard || !tile.watching;
@@ -1072,7 +1236,7 @@ function applyAudioRouting() {
 }
 
 function updateKeepAwake() {
-  api.keepAwake(Boolean(state.share) || state.tiles.size > 0);
+  api.keepAwake(Boolean(state.share || state.camera) || watchedTiles().length > 0);
 }
 
 // ---------- Reações ----------
@@ -1109,7 +1273,10 @@ async function updateStats() {
     let tracker = state.trackers.get(peer.id);
     if (!tracker) state.trackers.set(peer.id, (tracker = new StatsTracker()));
     try {
-      peer.stats = await tracker.collect(peer.pc, { remoteVideoTrackId: peer.remoteStream.getVideoTracks()[0]?.id });
+      peer.stats = await tracker.collect(peer.pc, {
+        remoteVideoTrackId: peer.remoteStream.getVideoTracks()[0]?.id,
+        sendVideoMid: peer.videoTx?.mid,
+      });
     } catch {
       peer.stats = null;
     }
@@ -1130,13 +1297,18 @@ async function updateStats() {
 }
 
 function renderTileStats(peer) {
-  const tile = peer && state.tiles.get(peer.id);
-  if (!tile) return;
+  if (!peer) return;
   const s = peer.stats;
   const level = s?.recvVideo?.lossRate != null ? peerSignal(s) : null;
-  tile.signal.replaceChildren(...(level ? [signalBars(level), el('span', { class: 'signal-text' }, `sinal ${SIGNAL_TEXT[level]}`)] : []));
-  tile.signal.title = level ? `Sinal ${SIGNAL_TEXT[level]}` : '';
-  if (tile.stats.hidden) return;
+  // O sinal é da conexão com a pessoa: vale para a tela e para a câmera dela.
+  for (const kind of ['screen', 'camera']) {
+    const monitor = state.tiles.get(tileKey(peer.id, kind));
+    if (!monitor) continue;
+    monitor.signal.replaceChildren(...(level ? [signalBars(level), el('span', { class: 'signal-text' }, `sinal ${SIGNAL_TEXT[level]}`)] : []));
+    monitor.signal.title = level ? `Sinal ${SIGNAL_TEXT[level]}` : '';
+  }
+  const tile = state.tiles.get(tileKey(peer.id, 'screen'));
+  if (!tile || tile.stats.hidden) return;
   const lines = [];
   const v = s?.recvVideo;
   if (v?.width) {
@@ -1591,6 +1763,116 @@ function togglePause() {
   if (state.share) setPaused(!state.share.paused);
 }
 
+// ---------- Câmera ----------
+// A câmera é independente da transmissão de tela: dá para ligar as duas, ou só uma.
+// Vai sem som, até 540p a 30 fps, e só para quem está na versão 1.4 ou mais nova.
+
+async function startCamera(deviceId = prefs.cameraId) {
+  if (state.cameraStarting || !state.mesh) return;
+  state.cameraStarting = true;
+  renderCameraUi();
+  try {
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { ...CAMERA_CONSTRAINTS, ...(deviceId ? { deviceId: { exact: deviceId } } : {}) },
+        audio: false,
+      });
+    } catch (err) {
+      // A câmera lembrada pode ter sido desconectada: tenta a padrão do Windows.
+      if (!deviceId || !['NotFoundError', 'OverconstrainedError'].includes(err?.name)) throw err;
+      stream = await navigator.mediaDevices.getUserMedia({ video: CAMERA_CONSTRAINTS, audio: false });
+    }
+    const track = stream.getVideoTracks()[0];
+    if (!state.mesh) { // saiu da sala enquanto a câmera abria
+      track.stop();
+      return;
+    }
+    useCameraTrack(track);
+  } catch (err) {
+    toast(cameraErrorMessage(err), 'error', 10000);
+  } finally {
+    state.cameraStarting = false;
+    renderCameraUi();
+  }
+}
+
+/** Liga a câmera com essa faixa, ou troca a câmera mantendo o mesmo stream. */
+function useCameraTrack(track) {
+  const camera = state.camera;
+  if (camera) {
+    const old = camera.track;
+    camera.stream.removeTrack(old);
+    camera.stream.addTrack(track);
+    camera.track = track;
+    old.stop();
+  } else {
+    state.camera = { stream: new MediaStream([track]), track };
+    chime('stream');
+  }
+  prefs.cameraId = track.getSettings().deviceId || '';
+  savePrefs();
+  // Câmera desconectada (ou tomada por outro programa): desliga e avisa.
+  track.addEventListener('ended', () => {
+    if (state.camera?.track === track) stopCamera('A câmera parou: foi desconectada ou outro programa a pegou.');
+  });
+  state.mesh.startCamera(state.camera.stream);
+  renderParticipants();
+  updateKeepAwake();
+}
+
+function stopCamera(reason) {
+  const camera = state.camera;
+  if (!camera) return;
+  state.camera = null;
+  state.mesh?.stopCamera();
+  for (const track of camera.stream.getTracks()) track.stop();
+  if (reason) toast(reason, 'warn');
+  else chime('stop');
+  if (state.inRoom) {
+    renderCameraUi();
+    renderParticipants();
+  }
+  updateKeepAwake();
+}
+
+function renderCameraUi() {
+  const on = Boolean(state.camera);
+  const btn = $('#camera-btn');
+  btn.setAttribute('aria-pressed', String(on));
+  btn.disabled = state.cameraStarting;
+  btn.title = on ? 'Desligar a câmera' : 'Ligar a câmera (vai sem som)';
+  $('#camera-panel').hidden = !on;
+  const preview = $('#camera-preview');
+  if (!on) {
+    preview.srcObject = null;
+    return;
+  }
+  if (preview.srcObject !== state.camera.stream) {
+    preview.srcObject = state.camera.stream;
+    preview.play().catch(() => {});
+  }
+  // Quem está numa versão antiga não recebe a câmera.
+  const old = [...(state.mesh?.peers.values() || [])].filter((peer) => !supportsCamera(peer)).map((peer) => peer.name);
+  $('#camera-hint').textContent = old.length
+    ? `${old.join(', ')} ${old.length > 1 ? 'estão' : 'está'} numa versão antiga do Telão e não ${old.length > 1 ? 'veem' : 'vê'} a sua câmera.`
+    : 'Vai para todos na sala, sem som.';
+  renderCameraDevices();
+}
+
+/** Lista das câmeras do PC (só aparece com mais de uma). */
+async function renderCameraDevices() {
+  let devices = [];
+  try {
+    devices = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput');
+  } catch { /* sem lista: fica a câmera atual */ }
+  if (!state.camera) return;
+  const current = state.camera.track.getSettings().deviceId;
+  $('#camera-device').replaceChildren(...devices.map((d, i) => el('option', { value: d.deviceId, selected: d.deviceId === current }, d.label || `Câmera ${i + 1}`)));
+  $('#camera-device-field').hidden = devices.length < 2;
+  $('#camera-source').textContent = state.camera.track.label || '';
+}
+
 // ---------- Escolha da tela ----------
 
 async function openPicker() {
@@ -1958,6 +2240,9 @@ async function init() {
   $('#stop-btn').addEventListener('click', () => stopShare());
   $('#pause-btn').addEventListener('click', togglePause);
   $('#leave-btn').addEventListener('click', () => leaveRoom());
+  $('#camera-btn').addEventListener('click', () => (state.camera ? stopCamera() : startCamera()));
+  $('#camera-off-btn').addEventListener('click', () => stopCamera());
+  $('#camera-device').addEventListener('change', (event) => startCamera(event.target.value));
   $('#sounds-btn').addEventListener('click', () => {
     prefs.sounds = prefs.sounds === false;
     savePrefs();

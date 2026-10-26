@@ -78,12 +78,91 @@ function turnServers(turn) {
 }
 
 /**
+ * Tira os endereços na porta 53: os navegadores bloqueiam essa porta e a
+ * tentativa só atrasa a conexão (a Cloudflare recomenda filtrar).
+ */
+function withoutPort53(iceServers) {
+  return iceServers
+    .map((server) => {
+      const urls = (Array.isArray(server.urls) ? server.urls : [server.urls])
+        .filter((u) => typeof u === 'string' && !/:53(?:[/?]|$)/.test(u));
+      return urls.length ? { ...server, urls } : null;
+    })
+    .filter(Boolean);
+}
+
+const DEFAULT_TURN_LIMIT_GB = 900; // a Cloudflare dá 1.000 GB por mês: sobra folga
+const USAGE_CACHE_MS = 10 * 60 * 1000;
+const TURN_USAGE_QUERY = `query TelaoTurnUsage($account: string!, $start: Date!, $end: Date!) {
+  viewer { accounts(filter: { accountTag: $account }) {
+    callsTurnUsageAdaptiveGroups(limit: 10000, filter: { date_geq: $start, date_leq: $end }) { sum { egressBytes } }
+  } }
+}`;
+
+/** Interruptor manual: TURN=off (ou desligado, 0, false, não) desliga os retransmissores. */
+function turnSwitchedOff(env) {
+  return /^(off|0|false|desligado|nao|não)$/i.test(String(env.TURN ?? '').trim());
+}
+
+/** Bytes que o TURN da Cloudflare mandou neste mês (UTC): é o que a Cloudflare cobra. */
+async function monthEgressBytes(account, token, now) {
+  const iso = now.toISOString();
+  const res = await fetch('https://api.cloudflare.com/client/v4/graphql', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query: TURN_USAGE_QUERY, variables: { account, start: `${iso.slice(0, 7)}-01`, end: iso.slice(0, 10) } }),
+    signal: AbortSignal.timeout(5_000),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const body = await res.json();
+  if (body.errors?.length) throw new Error(body.errors[0].message);
+  const groups = body.data?.viewer?.accounts?.[0]?.callsTurnUsageAdaptiveGroups || [];
+  return groups.reduce((total, group) => total + (Number(group.sum?.egressBytes) || 0), 0);
+}
+
+/**
+ * Teto mensal do retransmissor: diz se o TURN já passou de TURN_LIMIT_GB no mês
+ * (padrão 900 GB), consultando as estatísticas da conta (CLOUDFLARE_ACCOUNT_ID e
+ * CLOUDFLARE_ANALYTICS_TOKEN, só leitura) no máximo a cada 10 minutos. Passou: o
+ * servidor para de oferecer o TURN e tudo fica como sem ele; no mês seguinte volta.
+ * Sem essas credenciais não há teto. Se a consulta falhar, vale a última resposta
+ * do mês (ou "não passou"), para um erro passageiro não desligar o retransmissor.
+ */
+function turnUsageGuard(env, log) {
+  const account = env.CLOUDFLARE_ACCOUNT_ID;
+  const token = env.CLOUDFLARE_ANALYTICS_TOKEN;
+  const limitGb = Number(env.TURN_LIMIT_GB) > 0 ? Number(env.TURN_LIMIT_GB) : DEFAULT_TURN_LIMIT_GB;
+  if (!account || !token) return async () => false;
+  let cache = null; // { month, over, until }
+  return async (now = new Date()) => {
+    const month = now.toISOString().slice(0, 7);
+    if (cache && cache.month === month && cache.until > Date.now()) return cache.over;
+    const known = cache?.month === month ? cache.over : false;
+    try {
+      const bytes = await monthEgressBytes(account, token, now);
+      const over = bytes >= limitGb * 1e9;
+      if (over && !known) log(`TURN desligado até o mês que vem: ${(bytes / 1e9).toFixed(1)} GB usados (teto de ${limitGb} GB).`);
+      cache = { month, over, until: Date.now() + USAGE_CACHE_MS };
+    } catch (err) {
+      log(`Falha ao consultar o uso do TURN: ${err.message}`);
+      cache = { month, over: known, until: Date.now() + 60_000 }; // tenta de novo em 1 minuto
+    }
+    return cache.over;
+  };
+}
+
+/**
  * Monta a função que devolve os iceServers a partir de variáveis de ambiente:
  *  - TURN_URLS, TURN_USERNAME, TURN_CREDENTIAL: um servidor TURN fixo (ex.: coturn).
  *  - CLOUDFLARE_TURN_KEY_ID, CLOUDFLARE_TURN_API_TOKEN: gera credenciais do
  *    Cloudflare TURN (1.000 GB/mês grátis) e renova a cada 12 h.
+ *  - TURN=off: desliga o Cloudflare TURN na hora (interruptor manual).
+ *  - CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_ANALYTICS_TOKEN, TURN_LIMIT_GB: o teto
+ *    mensal (ver turnUsageGuard).
  */
 function iceServersFromEnv(env, log = () => {}) {
+  // Interruptor desligado: nenhum retransmissor, nem o fixo nem o da Cloudflare.
+  if (turnSwitchedOff(env)) return async () => DEFAULT_ICE_SERVERS;
   const fixed = [
     ...DEFAULT_ICE_SERVERS,
     ...turnServers({ urls: env.TURN_URLS, username: env.TURN_USERNAME, credential: env.TURN_CREDENTIAL }),
@@ -91,9 +170,11 @@ function iceServersFromEnv(env, log = () => {}) {
   const keyId = env.CLOUDFLARE_TURN_KEY_ID;
   const token = env.CLOUDFLARE_TURN_API_TOKEN;
   if (!keyId || !token) return async () => fixed;
+  const overLimit = turnUsageGuard(env, log);
 
   let cache = null;
   return async () => {
+    if (await overLimit()) return fixed;
     if (cache && cache.expires > Date.now()) return cache.value;
     try {
       const res = await fetch(
@@ -107,7 +188,7 @@ function iceServersFromEnv(env, log = () => {}) {
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const body = await res.json();
-      const value = [...fixed, ...(Array.isArray(body.iceServers) ? body.iceServers : [])];
+      const value = [...fixed, ...withoutPort53(Array.isArray(body.iceServers) ? body.iceServers : [])];
       cache = { value, expires: Date.now() + 12 * 3600 * 1000 };
       return value;
     } catch (err) {
