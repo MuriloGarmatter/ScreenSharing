@@ -271,6 +271,8 @@ details > summary::-webkit-details-marker { display: none; }
   .topbar-right { gap: 6px; }
   #leave-btn .label, #update-btn .label { display: none; }
   #leave-btn, #update-btn { width: 34px; padding: 0; }
+  /* Na sala, o nome dela vale mais que a palavra "Telão" (o ícone continua). */
+  #room-view .wordmark { display: none; }
 }
 .topbar-left { gap: 9px; }
 .sep { width: 1px; height: 18px; margin: 0 4px; background: var(--border-strong); }
@@ -404,6 +406,15 @@ details > summary::-webkit-details-marker { display: none; }
   border-radius: 4px; border: 1px solid var(--border-strong); background: var(--raised);
 }
 .update-icon { display: inline-flex; color: var(--text); }
+/* Na sala, a faixa fica no topo do painel, com o mesmo respiro dos painéis. */
+.room-update { margin: 14px 16px 2px; }
+.room-update .icon-btn { flex: none; }
+/* O botão "Atualizar" do alto ganha um ponto de novidade (verde: é aviso, não "no ar"). */
+#update-btn { position: relative; }
+#update-btn::after {
+  content: ''; position: absolute; top: -3px; right: -3px;
+  width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 2px var(--panel);
+}
 .update-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .update-text span { font-size: 12.5px; color: var(--muted); }
 
@@ -665,8 +676,12 @@ details > summary::-webkit-details-marker { display: none; }
 .participant-main { flex: 1; min-width: 0; }
 .participant-name { display: flex; align-items: center; gap: 7px; min-width: 0; font-weight: 600; }
 .participant-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.participant-cam { flex: none; display: inline-grid; color: var(--accent-ui); }
-.participant-cam svg.i { width: 15px; height: 15px; }
+/* Microfone e câmera ligados: ícones depois do nome. */
+.participant-media { flex: none; display: inline-grid; color: var(--accent-ui); }
+.participant-media svg.i { width: 15px; height: 15px; }
+/* Falando agora: o monograma ganha um contorno verde (a cor de "no ar" é só da transmissão). */
+.avatar { transition: box-shadow 0.12s, border-color 0.12s; }
+.participant.speaking .avatar { border-color: var(--ok); box-shadow: 0 0 0 2px var(--ok); }
 .participant-name .tally { width: 8px; height: 8px; background: var(--accent); border-color: var(--accent); }
 .participant-name .tally.paused { background: transparent; border-color: var(--warn); }
 .participant-sub { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -702,9 +717,31 @@ details > summary::-webkit-details-marker { display: none; }
 .camera-info .tally { background: var(--accent); border-color: var(--accent); }
 #camera-source { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--wall-muted); }
 #camera-off-btn { justify-self: start; width: fit-content; }
-/* A tecla da câmera acende como a luz de "no ar" enquanto a câmera está ligada. */
-.camera-btn[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
-.camera-btn[aria-pressed="true"]:hover { background: var(--accent-hover); }
+/* Microfone e câmera acendem como a luz de "no ar" enquanto estão ligados. */
+.live-key[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.live-key[aria-pressed="true"]:hover { background: var(--accent-hover); }
+
+/* Voz: as duas teclas (microfone e silenciar vozes), o medidor e o volume de cada voz. */
+.voice-keys { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.voice-key { justify-content: center; }
+.voice-key svg.i { flex: none; }
+/* Vozes silenciadas: âmbar, como o que está pausado (você não está ouvindo ninguém). */
+#deafen-key[aria-pressed="true"] { border-color: var(--warn-border); background: var(--warn-soft); color: var(--warn-text); }
+/* Sensibilidade: o medidor do microfone com a marca do limite; verde quando a voz passa. */
+.meter.voice-meter > span { background: var(--wall-faint); transform: scaleX(var(--level, 0)); }
+.meter.voice-meter.open > span { background: var(--ok); }
+.meter.voice-meter { overflow: visible; margin-block: 4px; }
+.meter-mark {
+  position: absolute; top: -5px; bottom: -5px; left: calc(var(--threshold, 0.33) * 100%); z-index: 1;
+  width: 3px; margin-left: -1.5px; border-radius: 1px; background: var(--text); pointer-events: none;
+}
+.sensitivity { gap: 8px; }
+.sensitivity input[type="range"] { width: 100%; margin: 0; accent-color: var(--accent-ui); }
+.voice-people { display: flex; flex-direction: column; gap: 6px; }
+.voice-person { display: grid; grid-template-columns: minmax(0, 1fr) minmax(80px, 130px) 4ch auto; align-items: center; gap: 8px; }
+.voice-percent { font: 500 12px/1 var(--label); font-variant-numeric: tabular-nums; color: var(--muted); text-align: right; }
+.voice-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; font-size: 13px; }
+.voice-person input[type="range"] { width: 100%; accent-color: var(--accent-ui); }
 .share-live-info .tally { background: var(--accent); border-color: var(--accent); }
 .share-live.paused .share-live-info .tally { background: transparent; border-color: var(--warn); }
 #share-source { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--wall-text); }

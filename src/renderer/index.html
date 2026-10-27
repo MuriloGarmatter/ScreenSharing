@@ -170,7 +170,8 @@
         <button id="console-btn" class="icon-btn" aria-pressed="true" aria-controls="console" data-icon="sidebar"></button>
         <button id="sounds-btn" class="icon-btn" aria-pressed="true"></button>
         <button class="icon-btn" data-open-appearance title="Aparência: tema e cores" aria-label="Aparência: tema e cores" data-icon="palette"></button>
-        <button id="camera-btn" class="icon-btn camera-btn" aria-pressed="false" aria-label="Câmera" data-icon="camera"></button>
+        <button id="mic-btn" class="icon-btn live-key" aria-pressed="false" aria-label="Microfone" data-icon="mic-off"></button>
+        <button id="camera-btn" class="icon-btn camera-btn live-key" aria-pressed="false" aria-label="Câmera" data-icon="camera"></button>
         <button id="share-btn" class="btn primary"></button>
         <button id="leave-btn" class="btn ghost" title="Sair da sala" aria-label="Sair da sala"><span data-icon="logout"></span><span class="label">Sair</span></button>
       </div>
@@ -194,9 +195,50 @@
     </section>
 
     <aside id="console" class="sidebar">
+      <!-- Versão nova pronta: a mesma faixa da tela inicial, no topo do painel da sala. -->
+      <div id="room-update" class="update-banner room-update" role="status" hidden>
+        <span class="update-icon" data-icon="download"></span>
+        <div class="update-text">
+          <strong id="room-update-title"></strong>
+          <span id="room-update-detail"></span>
+        </div>
+        <button type="button" id="room-update-apply" class="btn small"></button>
+        <button type="button" id="room-update-dismiss" class="icon-btn small" title="Agora não" aria-label="Agora não" data-icon="x"></button>
+      </div>
       <section class="panel">
         <h3>Na sala <span id="participant-count" class="count"></span></h3>
         <ul id="participants" class="participants"></ul>
+      </section>
+
+      <section id="voice-panel" class="panel">
+        <h3>Voz</h3>
+        <div class="voice-keys">
+          <button type="button" id="mic-key" class="btn small voice-key live-key" aria-pressed="false"></button>
+          <button type="button" id="deafen-key" class="btn small voice-key" aria-pressed="false"></button>
+        </div>
+        <div id="voice-people" class="voice-people" role="group" aria-label="Volume da voz de cada pessoa" hidden></div>
+        <p id="voice-hint" class="hint"></p>
+        <details class="advanced" id="voice-settings">
+          <summary>Ajustes do microfone</summary>
+          <div class="advanced-body">
+            <label class="field" id="mic-device-field" hidden>
+              <span>Qual microfone</span>
+              <select id="mic-device"></select>
+            </label>
+            <div class="field sensitivity">
+              <span class="field-label" id="sensitivity-label">Sensibilidade</span>
+              <label class="check"><input type="checkbox" id="sensitivity-auto"><span>Automática <em>(fica um pouco acima do barulho de fundo)</em></span></label>
+              <!-- O medidor e a barra usam a mesma escala (-70 a -10 dB): a marca é o limite.
+                   Verde: a voz está passando; apagado: abaixo do limite, vai silêncio. -->
+              <div id="mic-meter-row" class="meter voice-meter" title="Nível do seu microfone" hidden><span id="mic-meter"></span><i class="meter-mark" aria-hidden="true"></i></div>
+              <p id="mic-meter-off" class="hint">Ligue o microfone para ver o nível e acertar a sensibilidade.</p>
+              <input type="range" id="sensitivity" min="-70" max="-10" step="1" aria-labelledby="sensitivity-label" title="Arraste para a direita se o barulho de fundo estiver passando">
+            </div>
+            <label class="check"><input type="checkbox" id="voice-noise"><span>Redução de ruído <em>(ventilador, teclado, barulho de fundo)</em></span></label>
+            <label class="check"><input type="checkbox" id="voice-echo"><span>Cancelamento de eco <em>(desligue só se usar fone)</em></span></label>
+            <label class="check"><input type="checkbox" id="voice-gain"><span>Ganho automático <em>(deixa a voz sempre no mesmo volume)</em></span></label>
+          </div>
+        </details>
       </section>
 
       <section id="camera-panel" class="panel" hidden>
@@ -278,6 +320,9 @@
       </section>
     </aside>
   </div>
+
+  <!-- As vozes da sala tocam aqui (um <audio> por pessoa, sem nada na tela). -->
+  <div id="voices" hidden></div>
 
   <!-- Escolha do que transmitir -->
   <dialog id="picker" class="picker">

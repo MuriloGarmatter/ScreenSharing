@@ -219,6 +219,34 @@ export function cameraErrorMessage(err) {
   }
 }
 
+// ---------- Voz ----------
+// Microfone com o tratamento do próprio Chromium: cancelamento de eco (tira o som
+// que o Telão toca, como as transmissões e as outras vozes), redução de ruído e
+// ganho automático. Mono: voz não precisa de estéreo.
+
+export function voiceConstraints({ noiseSuppression = true, echoCancellation = true, autoGainControl = true } = {}) {
+  return { echoCancellation, noiseSuppression, autoGainControl, channelCount: 1 };
+}
+
+export const VOICE_CONSTRAINTS = voiceConstraints();
+
+/** Mensagem amigável para os erros ao abrir o microfone. */
+export function micErrorMessage(err) {
+  switch (err?.name) {
+    case 'NotAllowedError':
+    case 'SecurityError':
+      return 'O Windows bloqueou o microfone. Em Configurações → Privacidade e segurança → Microfone, ligue "Permitir que aplicativos da área de trabalho acessem o microfone".';
+    case 'NotReadableError':
+    case 'AbortError':
+      return 'O microfone está ocupado por outro programa. Feche-o e tente de novo.';
+    case 'NotFoundError':
+    case 'OverconstrainedError':
+      return 'Nenhum microfone encontrado. Confira se ele está conectado.';
+    default:
+      return `Não foi possível ligar o microfone: ${err?.message || err}`;
+  }
+}
+
 /**
  * FPS que vale de verdade. Sem compressão na placa de vídeo, cada pessoa assistindo
  * é uma compressão inteira no processador: com 2 ou mais, 60 fps trava o PC, e

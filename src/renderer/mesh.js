@@ -19,6 +19,9 @@ const REACTION_LIMIT = 8; // por pessoa, a cada 2 s
 const FULL_VIEW = { video: true, audio: true, height: 0, camera: true, camHeight: 0 };
 // A câmera só vai para quem sabe separá-la da tela (versões antigas misturariam as duas).
 export const CAMERA_VERSION = '1.4.0';
+// A voz, idem: uma 1.4 juntaria a voz ao som da tela.
+export const VOICE_VERSION = '1.5.0';
+const VOICE_BITRATE = 48_000;
 
 export const REACTIONS = ['😂', '🔥', '👏', '😮', '❤️', '👍'];
 
@@ -27,6 +30,8 @@ const sameView = (a, b) => Boolean(a && b) && a.video === b.video && a.audio ===
 
 /** Essa pessoa está numa versão que recebe câmera? */
 export const supportsCamera = (peer) => compareVersions(peer?.state?.version, CAMERA_VERSION) >= 0;
+/** E voz? */
+export const supportsVoice = (peer) => compareVersions(peer?.state?.version, VOICE_VERSION) >= 0;
 
 /** Altura pedida (em linhas) válida, ou 0 = cheia. */
 const viewHeight = (value) => {
@@ -54,6 +59,10 @@ export class Mesh extends EventTarget {
     this.peers = new Map();
     this.share = null; // { stream, videoTrack, audioTrack, settings }
     this.camera = null; // { stream, track }: a minha câmera
+    // A minha voz: o stream é sempre o mesmo (o id dele é o que separa a voz da tela
+    // para quem recebe); o microfone entra e sai dele. micTrack null = microfone desligado.
+    this.voiceStream = new MediaStream();
+    this.micTrack = null;
     this.state = { sharing: false, version: this.version };
     this.serverConnected = false;
   }
@@ -73,6 +82,7 @@ export class Mesh extends EventTarget {
     if (ws) ws.close();
     this.share = null;
     this.camera = null;
+    this.micTrack = null;
   }
 
   // ---------- Transmissão local ----------
@@ -198,6 +208,50 @@ export class Mesh extends EventTarget {
       this.#deactivate(peer.camTx);
       this.#sendMedia(peer);
     }
+  }
+
+  // ---------- Voz ----------
+
+  /**
+   * Liga o microfone com essa faixa (ou troca de microfone), ou desliga com null.
+   * Desligar só tira a faixa do envio: nada é renegociado, e religar é instantâneo.
+   */
+  setMic(track) {
+    const stream = this.voiceStream;
+    for (const old of stream.getAudioTracks()) if (old !== track) stream.removeTrack(old);
+    if (track && !stream.getTrackById(track.id)) stream.addTrack(track);
+    this.micTrack = track || null;
+    for (const peer of this.peers.values()) {
+      if (!supportsVoice(peer)) continue;
+      this.#sendMedia(peer); // antes da faixa: quem recebe já sabe que ela é a voz
+      if (track) this.#attachVoice(peer);
+      else peer.micTx?.sender.replaceTrack(null).catch(() => {});
+    }
+  }
+
+  #attachVoice(peer) {
+    if (!peer.micTx) {
+      peer.micTx = peer.pc.addTransceiver(this.micTrack, {
+        direction: 'sendonly',
+        streams: [this.voiceStream],
+        sendEncodings: [{ maxBitrate: VOICE_BITRATE }],
+      });
+    } else {
+      peer.micTx.sender.replaceTrack(this.micTrack).catch((err) => console.warn('replaceTrack (voz) falhou:', err));
+      if (peer.micTx.direction !== 'sendonly') peer.micTx.direction = 'sendonly';
+    }
+  }
+
+  /** O nível (0 a 1) da voz que chega dessa pessoa agora, para saber quem está falando. */
+  voiceLevel(peerId) {
+    const peer = this.peers.get(peerId);
+    const track = peer?.voiceStream.getAudioTracks()[0];
+    if (!peer?.remoteVoiceId || !track) return 0;
+    const receiver = peer.pc.getReceivers().find((r) => r.track === track);
+    const now = performance.timeOrigin + performance.now();
+    // Só vale o que chegou há pouco (o último pacote de quem parou de falar fica lá).
+    const recent = receiver?.getSynchronizationSources?.().filter((source) => now - source.timestamp < 400) || [];
+    return Math.max(0, ...recent.map((source) => source.audioLevel || 0));
   }
 
   setState(state) {
@@ -364,10 +418,14 @@ export class Mesh extends EventTarget {
       cameraStream: new MediaStream(), // a câmera dela
       remoteCameraId: null, // id do stream da câmera dela, enquanto ligada (vem pelo canal)
       cameraSids: new Set(), // streams que já foram a câmera dela (a faixa fica sendo câmera)
+      voiceStream: new MediaStream(), // a voz dela
+      remoteVoiceId: null, // id do stream da voz dela, enquanto o microfone está ligado
+      voiceSids: new Set(),
       trackStreams: new Map(), // faixa recebida -> id do stream em que ela veio
       videoTx: null,
       audioTx: null,
       camTx: null, // a minha câmera para ela
+      micTx: null, // a minha voz para ela
       stats: null,
       view: { ...FULL_VIEW }, // o que essa pessoa quer receber de mim
       wantedView: null, // o que eu quero receber dela (ver setView)
@@ -427,6 +485,7 @@ export class Mesh extends EventTarget {
 
     if (this.share) this.#attachShare(peer);
     if (this.camera && supportsCamera(peer)) this.#attachCamera(peer);
+    if (this.micTrack && supportsVoice(peer)) this.#attachVoice(peer);
     this.#watchConnection(peer, 0);
     this.#emit('peer-joined', { peer, silent });
   }
@@ -472,30 +531,48 @@ export class Mesh extends EventTarget {
     this.#emit('view', { peer });
   }
 
-  /** A pessoa ligou ou desligou a câmera: o id do stream separa a câmera da tela. */
+  /**
+   * A pessoa ligou ou desligou a câmera ou o microfone: o id de cada stream separa a
+   * câmera e a voz da tela (null = desligado).
+   */
   #onMedia(peer, msg) {
-    const camera = typeof msg.camera === 'string' && msg.camera.length <= 100 ? msg.camera : null;
-    if (peer.remoteCameraId === camera) return;
+    const id = (value) => (typeof value === 'string' && value.length <= 100 ? value : null);
+    const camera = id(msg.camera);
+    const voice = id(msg.voice);
+    const cameraChanged = peer.remoteCameraId !== camera;
+    const voiceChanged = peer.remoteVoiceId !== voice;
+    if (!cameraChanged && !voiceChanged) return;
     peer.remoteCameraId = camera;
+    peer.remoteVoiceId = voice;
     if (camera) peer.cameraSids.add(camera);
+    if (voice) peer.voiceSids.add(voice);
     this.#routeTracks(peer);
-    this.#emit('camera', { peer });
+    if (cameraChanged) this.#emit('camera', { peer });
+    if (voiceChanged) this.#emit('voice', { peer });
   }
 
   #sendMedia(peer) {
     if (peer.channel?.readyState !== 'open' || !supportsCamera(peer)) return;
-    peer.channel.send(JSON.stringify({ type: 'media', camera: this.camera ? this.camera.stream.id : null }));
+    peer.channel.send(JSON.stringify({
+      type: 'media',
+      camera: this.camera ? this.camera.stream.id : null,
+      // Uma 1.4 ignora este campo (e nem recebe a voz).
+      voice: this.micTrack && supportsVoice(peer) ? this.voiceStream.id : null,
+    }));
   }
 
   /**
-   * Põe cada faixa recebida no lugar certo: a câmera em cameraStream, a tela e o som
-   * dela em remoteStream. Quem não manda o aviso (versões antigas) só tem a tela.
+   * Põe cada faixa recebida no lugar certo: a câmera em cameraStream, a voz em
+   * voiceStream, a tela e o som dela em remoteStream. Quem não manda o aviso
+   * (versões antigas) só tem a tela.
    */
   #routeTracks(peer) {
+    const streams = [peer.remoteStream, peer.cameraStream, peer.voiceStream];
     for (const [track, sid] of peer.trackStreams) {
-      const camera = Boolean(sid) && peer.cameraSids.has(sid);
-      const [to, from] = camera ? [peer.cameraStream, peer.remoteStream] : [peer.remoteStream, peer.cameraStream];
-      if (from.getTrackById(track.id)) from.removeTrack(track);
+      let to = peer.remoteStream;
+      if (sid && peer.cameraSids.has(sid)) to = peer.cameraStream;
+      else if (sid && peer.voiceSids.has(sid)) to = peer.voiceStream;
+      for (const from of streams) if (from !== to && from.getTrackById(track.id)) from.removeTrack(track);
       if (!to.getTrackById(track.id)) to.addTrack(track);
     }
   }
@@ -516,7 +593,9 @@ export class Mesh extends EventTarget {
     this.peers.delete(id);
     clearTimeout(peer.watchdog);
     peer.pc.close();
-    for (const track of [...peer.remoteStream.getTracks(), ...peer.cameraStream.getTracks()]) track.stop();
+    for (const stream of [peer.remoteStream, peer.cameraStream, peer.voiceStream]) {
+      for (const track of stream.getTracks()) track.stop();
+    }
     this.#emit('peer-left', { peer, silent });
   }
 

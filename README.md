@@ -17,9 +17,9 @@ O som do **Discord não vai junto**, então ninguém ouve a própria voz de volt
 </div>
 
 > [!IMPORTANT]
-> - **O Telão não tem chat de voz.** Ele transmite a tela e o som do computador. Para conversar,
->   fiquem numa chamada do Discord (ou de outro app) ao mesmo tempo. O som dessa chamada não entra
->   na transmissão.
+> - **Dá para conversar pelo próprio Telão** (a partir da 1.5): ligue o microfone no painel **Voz**.
+>   Quem preferir pode continuar numa chamada do Discord ao mesmo tempo: o som dessa chamada não
+>   entra na transmissão.
 > - **Netflix, Prime Video, Disney+ e outros streamings pagos aparecem PRETOS** para quem assiste,
 >   por proteção contra cópia. YouTube, vídeos baixados e jogos funcionam.
 
@@ -37,7 +37,8 @@ O som do **Discord não vai junto**, então ninguém ouve a própria voz de volt
   - [3. Transmitir a sua tela](#3-transmitir-a-sua-tela)
   - [4. Assistir a tela dos outros](#4-assistir-a-tela-dos-outros)
   - [5. Ligar a câmera](#5-ligar-a-câmera)
-  - [6. Avisos, bandeja e cores](#6-avisos-bandeja-e-cores)
+  - [6. Conversar por voz](#6-conversar-por-voz)
+  - [7. Avisos, bandeja e cores](#7-avisos-bandeja-e-cores)
 - [Atalhos de teclado](#-atalhos-de-teclado)
 - [Som: como o Discord fica de fora](#-som-como-o-discord-fica-de-fora)
 - [Qualidade, FPS e internet](#-qualidade-fps-e-internet)
@@ -63,6 +64,8 @@ O som do **Discord não vai junto**, então ninguém ouve a própria voz de volt
   **janelinha flutuante** por cima do jogo, mandar **reações** (😂🔥👏) e **parar de assistir** quem
   você não quer ver: a tela dessa pessoa sai do caminho.
 - **Câmera:** cada um pode ligar a webcam (sem som), junto com a tela ou sozinha.
+- **Voz:** conversem pelo próprio Telão, com cancelamento de eco e redução de ruído. Dá para
+  ligar e desligar o microfone com `Ctrl+Alt+M`, até com o jogo aberto.
 - **Pausa com uma tecla** (`Ctrl+Alt+P`) para quando aparecer algo que você não quer mostrar.
 - **Avisa quando alguém começa a transmitir**, com som, notificação e a barra de tarefas piscando.
 - **Vai direto de PC para PC:** a imagem e o som não passam por nenhum servidor de terceiros.
@@ -375,7 +378,43 @@ câmera**. Se o PC tiver mais de uma câmera, escolha qual em **Qual câmera**.
   ligue **Permitir que aplicativos da área de trabalho acessem a câmera**. Se outro programa estiver
   usando a câmera (Discord, OBS, navegador), feche-o e tente de novo.
 
-### 6. Avisos, bandeja e cores
+### 6. Conversar por voz
+
+No painel **Voz** (na coluna da direita), clique em **Microfone desligado** para ligar, ou use o
+botão 🎤 no alto da sala ou `Ctrl+Alt+M`. O botão acende em vermelho enquanto o microfone está
+ligado, e um somzinho confirma (útil com o jogo na frente).
+
+- **Na primeira vez, o microfone começa desligado.** Depois, o Telão lembra: se você saiu com ele
+  ligado, ele liga sozinho ao entrar na próxima sala.
+- **Desligado é desligado mesmo:** o Telão solta o microfone, e o Windows deixa de mostrar que ele
+  está em uso.
+- Na lista **Na sala**, quem está com o microfone ligado tem um 🎤 ao lado do nome, e quem está
+  falando ganha um **contorno verde** no quadradinho com a inicial.
+- **Volume de cada voz:** no painel **Voz** aparece cada pessoa com o microfone ligado, com o volume
+  (de 0 a **200%**, para quem fala baixo; clique duplo na barra volta para 100%) e um botão para
+  silenciar só ela. Fica lembrado pelo nome, separado do volume da transmissão dela.
+- **Silenciar vozes** 🎧: você para de ouvir todo mundo, e o seu microfone desliga junto, como no
+  Discord. Clique de novo para voltar; o microfone volta como estava.
+- **Ajustes do microfone** (no painel **Voz**, como no Discord):
+  - **Qual microfone**, se o PC tiver mais de um.
+  - **Sensibilidade:** abaixo do limite vai silêncio, e o barulho de fundo não chega aos outros. Na
+    **Automática** (o padrão), o limite fica um pouco acima do barulho de fundo, medido o tempo todo.
+    Desmarcando, você arrasta a barra: o medidor fica **verde** quando a sua voz passa, e a marca
+    branca é o limite. Se o barulho de fundo estiver passando, arraste para a direita; se a voz
+    estiver cortando, para a esquerda.
+  - **Redução de ruído**, **cancelamento de eco** e **ganho automático**, cada um com sua chave
+    (todos ligados por padrão). Desligue o cancelamento de eco só se usar fone. Mudar um desses
+    reabre o microfone, com um cortezinho de uma fração de segundo.
+- **Use fone de ouvido.** O Telão tira do seu microfone o som que ele mesmo toca (as transmissões e
+  as vozes), mas não o som de outros programas, como o jogo. Numa caixa de som, os outros podem ouvir
+  o jogo pelo seu microfone.
+- A voz não entra no som da sua transmissão (o Telão fica de fora da captura), a não ser no modo de
+  som **Tudo (sem filtro)**, que pega tudo; o painel **Voz** avisa quando for o caso.
+- Quem está numa **versão antiga** do Telão não participa da voz; o painel **Voz** avisa quem é.
+- **Não ligou?** Se o Windows bloquear, abra **Configurações → Privacidade e segurança → Microfone**
+  e ligue **Permitir que aplicativos da área de trabalho acessem o microfone**.
+
+### 7. Avisos, bandeja e cores
 
 - **Sons de aviso:** o sininho 🔔 no alto liga e desliga os sons (alguém começou a transmitir, você
   começou, pausou ou parou).
@@ -397,6 +436,7 @@ Funcionam **até com o jogo em primeiro plano**, enquanto você está numa sala:
 |---|---|
 | `Ctrl+Alt+T` | **Começa** a transmitir (com a mesma tela ou janela e o mesmo som da última vez) ou **para**. Se a janela da última vez não existir mais, o Telão aparece com a lista para escolher. |
 | `Ctrl+Alt+P` | **Pausa** ou **retoma** a transmissão. |
+| `Ctrl+Alt+M` | **Liga** ou **desliga** o seu microfone. |
 
 Cada um toca um somzinho diferente, então dá para saber que funcionou sem sair do jogo. Se outro
 programa já usar uma dessas combinações, o Telão avisa na hora de entrar na sala.
@@ -729,9 +769,9 @@ avisa que precisa do Telão no computador.
 
 **Dá para conversar pelo Telão?**
 
-Não: o Telão não tem microfone nem chat. Usem o Discord (ou outro app) para conversar. O som da chamada
-não entra na transmissão. Para reagir sem falar, use as **reações** 😂🔥👏, ou ligue a **câmera**
-(ela vai sem som).
+Dá, a partir da 1.5: ligue o microfone no painel **Voz** (veja [Conversar por voz](#6-conversar-por-voz)).
+A voz vai direto entre os PCs, como a tela. Não há chat de texto. Se preferirem o Discord, ele
+continua funcionando junto, e o som da chamada não entra na transmissão.
 
 **Quantas pessoas cabem numa sala?**
 
@@ -858,6 +898,13 @@ flowchart TB
   Como cada pessoa tem a própria conexão, cada uma recebe a qualidade que a internet dela aguenta. O
   canal de dados de cada conexão leva as reações (com limite de envio).
 - **Pausa:** desliga as faixas (`track.enabled = false`), sem renegociar; o estado "pausado" vai pela sala.
+- **Voz:** mais um transceptor de áudio por pessoa (`getUserMedia` com cancelamento de eco, redução de
+  ruído e ganho automático do Chromium; mono, até 48 kb/s). O stream da voz é sempre o mesmo durante a
+  sala e o microfone entra e sai dele com `replaceTrack`, sem renegociar. O id dele vai pelo canal de
+  dados (`{type: 'media', voice}`; `null` = microfone desligado), e quem recebe separa a voz por esse
+  id e toca cada uma por um `GainNode` (volume de 0 a 200%); um `<audio>` mudo fica ligado ao stream
+  porque, no Chromium, o áudio remoto só flui no Web Audio se também estiver num elemento de mídia. Quem está falando vem do `audioLevel` de
+  `getSynchronizationSources()` (sem decodificar nada a mais). Só vai para quem está na 1.5 ou mais nova.
 - **Câmera:** um transceptor de vídeo a mais por pessoa (`getUserMedia`, até 540p/30, H.264 preferido),
   independente da tela. Quem liga avisa pelo canal de dados qual é o id do stream da câmera
   (`{type: 'media', camera}`), e quem recebe separa as faixas por esse id: a câmera vai para

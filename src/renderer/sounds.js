@@ -7,6 +7,8 @@ const TONES = {
   pause: [[740, 0], [740, 0.12]], // pausou / retomou
   stream: [[523, 0], [659, 0.08], [784, 0.16]], // alguém começou a transmitir
   join: [[587, 0], [784, 0.08]], // alguém entrou
+  'mic-on': [[494, 0], [740, 0.07]], // microfone ligado (sobe)
+  'mic-off': [[740, 0], [494, 0.07]], // microfone desligado (desce)
 };
 
 let context = null;

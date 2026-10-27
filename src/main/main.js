@@ -184,9 +184,9 @@ ipcMain.handle('invite:pending', () => {
 // ---------- Bandeja, selo "ao vivo" na barra de tarefas e atalhos globais ----------
 
 let tray = null;
-let liveStatus = { inRoom: false, sharing: false, paused: false };
+let liveStatus = { inRoom: false, sharing: false, paused: false, mic: false };
 // Atalhos que valem até com o jogo em primeiro plano (só enquanto está numa sala).
-const SHORTCUTS = { 'Control+Alt+P': 'pause-toggle', 'Control+Alt+T': 'share-toggle' };
+const SHORTCUTS = { 'Control+Alt+P': 'pause-toggle', 'Control+Alt+T': 'share-toggle', 'Control+Alt+M': 'mic-toggle' };
 let shortcutsOn = false;
 
 async function sendCommand(command) {
@@ -199,7 +199,7 @@ async function sendCommand(command) {
 }
 
 function updateTray() {
-  const { sharing, paused } = liveStatus;
+  const { inRoom, sharing, paused, mic } = liveStatus;
   if (tray) {
     tray.setImage(path.join(ASSETS, sharing ? 'tray-live.png' : 'tray.png'));
     tray.setToolTip(sharing ? (paused ? 'Telão: transmissão pausada' : 'Telão: no ar') : 'Telão');
@@ -212,6 +212,12 @@ function updateTray() {
         { type: 'separator' },
         { label: paused ? 'Retomar transmissão' : 'Pausar transmissão', accelerator: 'Ctrl+Alt+P', click: () => sendCommand('pause-toggle') },
         { label: 'Parar transmissão', click: () => sendCommand('share-stop') },
+      );
+    }
+    if (inRoom) {
+      items.push(
+        { type: 'separator' },
+        { label: mic ? 'Desligar o microfone' : 'Ligar o microfone', accelerator: 'Ctrl+Alt+M', click: () => sendCommand('mic-toggle') },
       );
     }
     items.push({ type: 'separator' }, { label: 'Sair do Telão', click: () => app.quit() });
@@ -245,7 +251,7 @@ function setShortcuts(on) {
 }
 
 ipcMain.handle('status:set', (_event, status = {}) => {
-  liveStatus = { inRoom: status.inRoom === true, sharing: status.sharing === true, paused: status.paused === true };
+  liveStatus = { inRoom: status.inRoom === true, sharing: status.sharing === true, paused: status.paused === true, mic: status.mic === true };
   updateTray();
   return setShortcuts(liveStatus.inRoom);
 });

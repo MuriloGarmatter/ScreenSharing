@@ -2,9 +2,9 @@ import {
   DEFAULT_PORT, PUBLIC_SERVER, inviteLink, parseDeepLink, parseInviteText, parseServerAddress,
 } from './address.js';
 import { AppAudioCapture, LevelMeter, exeLabel, routeAppAudioData, routeAppAudioEvent } from './app-audio.js';
-import { Mesh, REACTIONS, supportsCamera } from './mesh.js';
+import { Mesh, REACTIONS, supportsCamera, supportsVoice } from './mesh.js';
 import {
-  AUDIO_CONSTRAINTS, BITRATES, CAMERA_CONSTRAINTS, CODECS, cameraErrorMessage, DEFAULT_SHARE_SETTINGS, FRAME_RATES, OPTIMIZE, QUALITY_PRESETS, RESOLUTIONS,
+  AUDIO_CONSTRAINTS, BITRATES, CAMERA_CONSTRAINTS, CODECS, cameraErrorMessage, micErrorMessage, voiceConstraints, DEFAULT_SHARE_SETTINGS, FRAME_RATES, OPTIMIZE, QUALITY_PRESETS, RESOLUTIONS,
   detectHardwareH264, effectiveFps, matchPreset, presetSpec, resolveCodec, suggestLowerSettings, targetBitrate,
   videoConstraints, wantedHeight,
 } from './media.js';
@@ -34,6 +34,14 @@ const state = {
   share: null, // { stream, source, audio, audioMode: 'all'|'app'|'pick'|'system'|'none', appAudio, meter, preview, paused }
   camera: null, // { stream, track }: a minha câmera, ligada
   cameraStarting: false,
+  mic: null, // o meu microfone, ligado: { ctx, gate, outTrack, input, source, level, open, threshold } (ver startMic)
+  micStarting: false,
+  deafened: false, // "Silenciar vozes": não ouço ninguém (vale só nesta sessão)
+  micBeforeDeafen: false,
+  voices: new Map(), // peerId -> { audio, source, gain }: a voz da pessoa (ver syncVoice)
+  voiceCtx: null, // o AudioContext onde as vozes tocam (com o volume de cada uma)
+  speaking: new Map(), // id (ou 'me') -> hora em que falou por último
+  speakingTimer: null,
   starting: null, // marca do início de transmissão em andamento (sair da sala a invalida)
   pendingInvite: null, // convite clicado enquanto ainda conectava: abre quando a tentativa termina
   meterTimer: null,
@@ -62,7 +70,7 @@ const state = {
   resizeObserver: typeof ResizeObserver === 'function' ? new ResizeObserver(() => scheduleViewSync()) : null,
   capWarned: false, // aviso de "30 fps sem placa de vídeo" já mostrado nesta transmissão
   update: null, // { status, version, percent, portable } vindo do processo principal
-  updateAnnounced: false,
+  updateDismissed: '', // a versão cuja faixa na sala foi dispensada ("Agora não")
 };
 
 const prefs = loadPrefs();
@@ -90,6 +98,13 @@ function loadPrefs() {
     copiedInvites: [], // convites que eu mesmo copiei (não viram a faixa "você copiou um convite")
     consoleHidden: false, // painel da sala (coluna da direita) recolhido
     cameraId: '', // a última câmera usada
+    micOn: false, // o microfone liga sozinho ao entrar (a última escolha)
+    micId: '', // o último microfone usado
+    voiceVolumes: {}, // nome da pessoa -> { volume, muted } da voz
+    // Ajustes do microfone (como no Discord): sensibilidade automática ou o limite em
+    // dB, e o tratamento do Chromium (redução de ruído, cancelamento de eco, ganho).
+    voiceAuto: true, voiceThreshold: -50,
+    voiceNoise: true, voiceEcho: true, voiceGain: true,
   };
   try {
     const saved = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}');
@@ -377,11 +392,14 @@ function wireMesh(mesh) {
     refreshShareSettings();
     updateBitrateHint();
     if (state.camera) renderCameraUi(); // quem chegou numa versão antiga não vê a câmera
+    renderVoiceUi();
     if (state.inRoom && !silent) toast(`${peer.name} entrou na sala.`);
   });
   on('peer-left', ({ peer, silent }) => {
     state.sharingPeers.delete(peer.id);
     removePeerTiles(peer.id);
+    removeVoice(peer.id);
+    renderVoiceUi();
     state.trackers.delete(peer.id);
     renderParticipants();
     if (state.camera) renderCameraUi(); // o aviso de quem não vê a câmera pode ter mudado
@@ -404,7 +422,16 @@ function wireMesh(mesh) {
     syncTile(peer);
     renderParticipants();
   });
-  on('remote-track', ({ peer }) => syncTile(peer));
+  on('remote-track', ({ peer }) => {
+    syncTile(peer);
+    syncVoice(peer);
+  });
+  // Alguém ligou ou desligou o microfone.
+  on('voice', ({ peer }) => {
+    syncVoice(peer);
+    renderVoiceUi();
+    renderParticipants();
+  });
   on('remote-media', ({ peer }) => updateTileWaiting(peer));
   // Alguém ligou ou desligou a câmera.
   on('camera', ({ peer }) => {
@@ -461,7 +488,12 @@ function enterRoom() {
   renderInvite();
   renderShareUi();
   renderCameraUi();
+  renderVoiceUi();
   for (const peer of state.mesh.peers.values()) syncTile(peer);
+  clearInterval(state.speakingTimer);
+  state.speakingTimer = setInterval(updateSpeaking, 150);
+  // O microfone volta como estava da última vez.
+  if (prefs.micOn) startMic();
   layoutTiles();
   clearInterval(state.statsTimer);
   state.statsTimer = setInterval(updateStats, STATS_INTERVAL_MS);
@@ -476,6 +508,14 @@ async function leaveRoom(force = false) {
   }
   stopShare();
   stopCamera();
+  stopMic();
+  state.deafened = false;
+  clearInterval(state.speakingTimer);
+  state.speakingTimer = null;
+  state.speaking.clear();
+  for (const id of [...state.voices.keys()]) removeVoice(id);
+  state.voiceCtx?.close().catch(() => {});
+  state.voiceCtx = null;
   state.starting = null; // uma transmissão começando agora não vai para a próxima sala
   const mesh = state.mesh;
   state.mesh = null;
@@ -514,7 +554,9 @@ function setServerStatus(connected) {
 async function pushStatus() {
   let taken = [];
   try {
-    taken = await api.setStatus({ inRoom: state.inRoom, sharing: Boolean(state.share), paused: Boolean(state.share?.paused) });
+    taken = await api.setStatus({
+      inRoom: state.inRoom, sharing: Boolean(state.share), paused: Boolean(state.share?.paused), mic: Boolean(state.mic),
+    });
   } catch {
     return;
   }
@@ -533,6 +575,7 @@ function onCommand(command) {
     // mesmo com os sons de aviso desligados (com eles ligados, já tocou).
     if (state.share && prefs.sounds === false) playSound('pause');
   } else if (command === 'share-stop') stopShare();
+  else if (command === 'mic-toggle') toggleMic({ shortcut: true });
   else if (command === 'share-toggle') toggleShareByShortcut();
 }
 
@@ -691,20 +734,22 @@ function avatar(name) {
 }
 
 /**
- * onAir: null (não transmite), 'live' ou 'paused': o tally aceso ao lado do nome.
- * camera: câmera ligada (um ícone depois do nome).
+ * Uma linha de "Na sala". onAir: null (não transmite), 'live' ou 'paused': o tally
+ * aceso ao lado do nome. camera e mic: ícones depois do nome. id: quem é ('me' =
+ * você), para o contorno de quem está falando (ver updateSpeaking).
  */
-function participantItem(name, sub, pill, onAir = null, camera = false) {
+function participantItem({ id, name, sub, pill, onAir = null, camera = false, mic = false }) {
   const tally = onAir
     ? el('span', { class: `tally${onAir === 'paused' ? ' paused' : ''}`, title: onAir === 'paused' ? 'Pausado' : 'No ar' })
     : null;
-  const cam = camera
-    ? el('span', { class: 'participant-cam', role: 'img', title: 'Câmera ligada', 'aria-label': 'câmera ligada', html: icon('camera') })
-    : null;
-  return el('li', { class: 'participant' },
+  const badge = (on, kind, label) => (on
+    ? el('span', { class: 'participant-media', role: 'img', title: label, 'aria-label': label.toLowerCase(), html: icon(kind) })
+    : null);
+  return el('li', { class: `participant${isSpeaking(id) ? ' speaking' : ''}`, dataset: { peer: id } },
     avatar(name),
     el('div', { class: 'participant-main' },
-      el('div', { class: 'participant-name', title: name }, tally, el('span', { class: 'participant-label' }, name), cam),
+      el('div', { class: 'participant-name', title: name }, tally, el('span', { class: 'participant-label' }, name),
+        badge(mic, 'mic', 'Microfone ligado'), badge(camera, 'camera', 'Câmera ligada')),
       el('div', { class: 'participant-sub', title: sub }, sub)),
     pill);
 }
@@ -738,7 +783,11 @@ function renderParticipants() {
     ? el('span', { class: state.share.paused ? 'pill warn' : 'pill live' }, state.share.paused ? 'Pausado' : 'No ar')
     : null;
   const myAir = state.share ? (state.share.paused ? 'paused' : 'live') : null;
-  const items = [participantItem(`${mesh.name} (você)`, mine, myPill, myAir, Boolean(state.camera))];
+  if (state.deafened) mine += ' · vozes silenciadas';
+  const items = [participantItem({
+    id: 'me', name: `${mesh.name} (você)`, sub: mine, pill: myPill, onAir: myAir,
+    camera: Boolean(state.camera), mic: Boolean(state.mic),
+  })];
   // Quem está numa versão antiga (as melhorias de CPU só valem com todos atualizados).
   const outdated = outdatedPeers(state.info.version,
     [...mesh.peers.values()].map((p) => ({ id: p.id, version: p.state.version })),
@@ -756,7 +805,10 @@ function renderParticipants() {
     let sub = parts.join(' · ') || 'Na sala';
     if (outdated.has(peer.id)) sub += ' · versão antiga do Telão';
     const air = peer.state.sharing ? (peer.state.paused ? 'paused' : 'live') : null;
-    items.push(participantItem(peer.name, sub, connectionPill(peer), air, Boolean(peer.remoteCameraId)));
+    items.push(participantItem({
+      id: peer.id, name: peer.name, sub, pill: connectionPill(peer), onAir: air,
+      camera: Boolean(peer.remoteCameraId), mic: Boolean(peer.remoteVoiceId),
+    }));
   }
   $('#participants').replaceChildren(...items);
   $('#participant-count').textContent = String(items.length);
@@ -1176,21 +1228,29 @@ function renderUpdate(status) {
   const s = state.update;
   const ready = s?.status === 'ready';
   const portable = s?.status === 'available';
-  $('#update-banner').hidden = !ready && !portable;
-  $('#update-btn').hidden = !ready && !portable;
-  if (!ready && !portable) return;
-  $('#update-title').textContent = ready ? `Versão ${s.version} pronta` : `Versão ${s.version} disponível`;
+  const show = ready || portable;
+  $('#update-banner').hidden = !show;
+  $('#update-btn').hidden = !show;
+  // Na sala: a faixa no topo do painel (até atualizar ou clicar em "Agora não");
+  // o botão do alto continua, com um ponto de novidade.
+  $('#room-update').hidden = !show || state.updateDismissed === s.version;
+  if (!show) return;
+  const title = ready ? `Versão ${s.version} pronta` : `Versão ${s.version} disponível`;
+  $('#update-title').textContent = title;
+  $('#room-update-title').textContent = title;
   $('#update-detail').textContent = ready
     ? 'Ela entra quando você fechar o Telão, ou agora mesmo:'
     : 'O Telão portátil não se atualiza sozinho: baixe o arquivo novo.';
-  $('#update-apply').textContent = ready ? 'Reiniciar e atualizar' : 'Baixar';
+  $('#room-update-detail').textContent = ready
+    ? 'Ela entra quando você fechar o Telão. Atualizar agora tira você da sala por alguns segundos.'
+    : 'O Telão portátil não se atualiza sozinho: baixe o arquivo novo.';
+  const action = ready ? 'Reiniciar e atualizar' : 'Baixar';
+  $('#update-apply').textContent = action;
+  $('#room-update-apply').textContent = ready ? 'Atualizar' : 'Baixar';
+  $('#room-update-apply').title = ready ? `Reiniciar e atualizar para a ${s.version}` : `Baixar a versão ${s.version}`;
   const btn = $('#update-btn');
   btn.title = ready ? `Reiniciar e atualizar para a ${s.version}` : `Baixar a versão ${s.version}`;
   btn.querySelector('.label').textContent = ready ? 'Atualizar' : 'Versão nova';
-  if (ready && state.inRoom && !state.updateAnnounced) {
-    state.updateAnnounced = true;
-    toast(`A versão ${s.version} do Telão foi baixada. Ela entra quando você fechar o app (ou clique em Atualizar).`, 'info', 9000);
-  }
 }
 
 async function applyUpdate() {
@@ -1576,6 +1636,7 @@ function renderShareUi() {
   renderParticipants();
   renderOutgoing();
   updateBitrateHint();
+  renderVoiceUi(); // o modo "Tudo (sem filtro)" leva as vozes junto: avisa no painel Voz
 }
 
 /** Tempo no ar (hh:mm:ss) ao lado da lâmpada NO AR. */
@@ -1771,6 +1832,369 @@ function setPaused(paused) {
 
 function togglePause() {
   if (state.share) setPaused(!state.share.paused);
+}
+
+// ---------- Voz ----------
+// O microfone vai para todos na sala que estão na 1.5 ou mais nova, com o
+// cancelamento de eco e a redução de ruído do Chromium. Desligado, o Telão solta
+// o microfone (o Windows deixa de mostrar que ele está em uso).
+
+const SPEAKING_REMOTE = 0.02; // nível da voz que chega (0 a 1, linear) a partir do qual alguém fala
+const SPEAKING_HOLD_MS = 450; // segura o contorno entre as palavras
+const METER_FLOOR_DB = -70; // o medidor e a barra de sensibilidade vão de -70 a -10 dB
+const METER_RANGE_DB = 60;
+const VOICE_GATE_URL = new URL('./voice-gate.js', import.meta.url);
+
+/** Abre o microfone com os ajustes de agora (redução de ruído, eco e ganho). */
+async function openMicInput(deviceId) {
+  const audio = voiceConstraints({ noiseSuppression: prefs.voiceNoise, echoCancellation: prefs.voiceEcho, autoGainControl: prefs.voiceGain });
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { ...audio, ...(deviceId ? { deviceId: { exact: deviceId } } : {}) }, video: false });
+    return stream.getAudioTracks()[0];
+  } catch (err) {
+    // O microfone lembrado pode ter sido desconectado: tenta o padrão do Windows.
+    if (!deviceId || !['NotFoundError', 'OverconstrainedError'].includes(err?.name)) throw err;
+    return (await navigator.mediaDevices.getUserMedia({ audio, video: false })).getAudioTracks()[0];
+  }
+}
+
+/**
+ * O caminho da voz: microfone → sensibilidade (voice-gate.js) → faixa enviada.
+ * A faixa enviada é sempre a mesma enquanto o microfone está ligado: trocar de
+ * microfone ou de ajuste só troca a entrada, e quem recebe nem percebe.
+ */
+async function createVoicePipeline() {
+  const ctx = new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' });
+  try {
+    await ctx.audioWorklet.addModule(VOICE_GATE_URL);
+    const gate = new AudioWorkletNode(ctx, 'telao-voice-gate', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] });
+    const dest = ctx.createMediaStreamDestination();
+    dest.channelCount = 1;
+    gate.connect(dest);
+    await ctx.resume();
+    const mic = { ctx, gate, outTrack: dest.stream.getAudioTracks()[0], input: null, source: null, level: -100, open: false, threshold: prefs.voiceThreshold };
+    gate.port.onmessage = (event) => Object.assign(mic, event.data); // { level, open, threshold }, 20 vezes por segundo
+    return mic;
+  } catch (err) {
+    ctx.close().catch(() => {});
+    throw err;
+  }
+}
+
+/** Manda a sensibilidade para o processador da voz. */
+function applyGateSettings() {
+  state.mic?.gate.port.postMessage({ auto: prefs.voiceAuto !== false, threshold: Number(prefs.voiceThreshold) || -50 });
+}
+
+/**
+ * Liga o microfone. Com ele já ligado, troca só a entrada: outro microfone, ou os
+ * ajustes de ruído, eco e ganho mudaram (o Chromium só aplica esses ao abrir).
+ */
+async function startMic(deviceId = prefs.micId) {
+  if (state.micStarting || !state.mesh) return false;
+  state.micStarting = true;
+  renderVoiceUi();
+  let input = null;
+  try {
+    // Com o microfone ligado, solta o atual antes de abrir de novo: se ele continuasse
+    // aberto, o Chromium reaproveitaria essa captura com os ajustes antigos.
+    if (state.mic?.input) {
+      state.mic.source?.disconnect();
+      state.mic.input.stop();
+      state.mic.input = null;
+      state.mic.source = null;
+    }
+    input = await openMicInput(deviceId);
+    if (!state.mesh) return false; // saiu da sala enquanto o microfone abria
+    let mic = state.mic;
+    if (!mic) {
+      mic = await createVoicePipeline();
+      if (!state.mesh) {
+        mic.ctx.close().catch(() => {});
+        return false;
+      }
+      state.mic = mic;
+      state.mesh.setMic(mic.outTrack);
+    }
+    const old = mic.input;
+    mic.source?.disconnect();
+    mic.input = input;
+    mic.source = mic.ctx.createMediaStreamSource(new MediaStream([input]));
+    mic.source.connect(mic.gate);
+    input = null; // agora é do caminho da voz
+    old?.stop();
+    applyGateSettings();
+    prefs.micId = mic.input.getSettings().deviceId || '';
+    savePrefs();
+    const current = mic.input;
+    current.addEventListener('ended', () => {
+      if (state.mic?.input === current) stopMic('O microfone parou: foi desconectado ou outro programa o pegou.');
+    });
+    return true;
+  } catch (err) {
+    toast(micErrorMessage(err), 'error', 10000);
+    // Trocando de microfone ou de ajuste, o anterior já foi solto: desliga de vez.
+    if (state.mic && !state.mic.input) queueMicrotask(() => stopMic());
+    return false;
+  } finally {
+    input?.stop(); // não chegou a entrar no caminho da voz
+    state.micStarting = false;
+    if (state.inRoom) {
+      renderVoiceUi();
+      renderParticipants();
+    }
+    pushStatus();
+  }
+}
+
+function stopMic(reason) {
+  const mic = state.mic;
+  if (!mic) return;
+  state.mic = null;
+  state.mesh?.setMic(null);
+  mic.input?.stop();
+  mic.outTrack.stop();
+  mic.ctx.close().catch(() => {});
+  state.speaking.delete('me');
+  if (reason) toast(reason, 'warn');
+  if (state.inRoom) {
+    renderVoiceUi();
+    renderParticipants();
+  }
+  pushStatus();
+}
+
+/** Liga ou desliga o microfone (botão, Ctrl+Alt+M, bandeja). A escolha fica lembrada. */
+async function toggleMic({ shortcut = false } = {}) {
+  if (!state.inRoom || state.micStarting) return;
+  if (state.mic) {
+    stopMic();
+    prefs.micOn = false;
+  } else {
+    // Falar com as vozes silenciadas não faz sentido: volta a ouvir também (como no Discord).
+    if (state.deafened) await setDeafened(false, { restoreMic: false });
+    prefs.micOn = await startMic();
+  }
+  savePrefs();
+  // Pelo atalho, com o jogo na frente, o som é a única confirmação: toca sempre.
+  if (shortcut || prefs.sounds !== false) playSound(state.mic ? 'mic-on' : 'mic-off');
+}
+
+/**
+ * Silenciar vozes: não ouço ninguém e o meu microfone desliga junto (como no
+ * Discord). Desfazer volta a ouvir e religa o microfone, se ele estava ligado.
+ */
+async function setDeafened(on, { restoreMic = true } = {}) {
+  if (state.deafened === on) return;
+  state.deafened = on;
+  if (on) {
+    state.micBeforeDeafen = Boolean(state.mic);
+    stopMic();
+  } else if (restoreMic && state.micBeforeDeafen && !state.mic) {
+    await startMic();
+  }
+  applyVoiceRouting();
+  renderVoiceUi();
+  renderParticipants();
+}
+
+const VOICE_MAX_VOLUME = 2; // dá para aumentar a voz de alguém até 200%, como no Discord
+
+/**
+ * Toca a voz de cada pessoa: stream → ganho (o volume dela, até 200%) → alto-falante.
+ * O <audio> mudo continua ligado ao stream porque, no Chromium, o áudio que chega pela
+ * conexão só flui no Web Audio se também estiver num elemento de mídia.
+ */
+function syncVoice(peer) {
+  if (!state.mesh || !peer.voiceStream.getAudioTracks().length) return;
+  state.voiceCtx ||= new AudioContext({ latencyHint: 'interactive' });
+  const ctx = state.voiceCtx;
+  ctx.resume().catch(() => {});
+  let voice = state.voices.get(peer.id);
+  if (!voice) {
+    const audio = el('audio', { autoplay: true });
+    audio.muted = true;
+    $('#voices').append(audio);
+    const gain = ctx.createGain();
+    gain.connect(ctx.destination);
+    voice = { audio, source: null, gain, sig: '' };
+    state.voices.set(peer.id, voice);
+  }
+  // Só religa quando a faixa mudou (religar à toa corta a voz).
+  const sig = peer.voiceStream.getTracks().map((t) => t.id).join(',');
+  if (voice.sig !== sig) {
+    voice.sig = sig;
+    voice.audio.srcObject = null;
+    voice.audio.srcObject = peer.voiceStream;
+    voice.audio.play().catch(() => {});
+    voice.source?.disconnect();
+    voice.source = ctx.createMediaStreamSource(peer.voiceStream);
+    voice.source.connect(voice.gain);
+  }
+  applyVoiceRouting();
+}
+
+function removeVoice(peerId) {
+  const voice = state.voices.get(peerId);
+  if (!voice) return;
+  voice.source?.disconnect();
+  voice.gain.disconnect();
+  voice.audio.srcObject = null;
+  voice.audio.remove();
+  state.voices.delete(peerId);
+  state.speaking.delete(peerId);
+}
+
+/** O volume da voz de alguém (0 a 2), como ficou lembrado pelo nome. */
+function voiceVolume(name) {
+  const saved = prefs.voiceVolumes?.[name]?.volume;
+  return Number.isFinite(saved) ? Math.min(VOICE_MAX_VOLUME, Math.max(0, saved)) : 1;
+}
+
+/** Volume e mudo de cada voz (lembrados pelo nome), e "Silenciar vozes". */
+function applyVoiceRouting() {
+  for (const [id, voice] of state.voices) {
+    const peer = state.mesh?.peers.get(id);
+    const muted = state.deafened || (peer && prefs.voiceVolumes?.[peer.name]?.muted === true);
+    voice.gain.gain.value = muted || !peer ? 0 : voiceVolume(peer.name);
+  }
+}
+
+function rememberVoice(name, change) {
+  const volumes = { ...(prefs.voiceVolumes || {}) };
+  volumes[name] = { volume: 1, muted: false, ...volumes[name], ...change };
+  const names = Object.keys(volumes);
+  for (const old of names.slice(0, Math.max(0, names.length - 50))) delete volumes[old];
+  prefs.voiceVolumes = volumes;
+  savePrefs();
+  applyVoiceRouting();
+}
+
+/** Posição (0 a 1) de um nível em dB no medidor e na barra de sensibilidade. */
+function meterPosition(db) {
+  return Math.min(1, Math.max(0, (db - METER_FLOOR_DB) / METER_RANGE_DB));
+}
+
+function isSpeaking(id) {
+  return Date.now() - (state.speaking.get(id) || 0) < SPEAKING_HOLD_MS;
+}
+
+/** Quem está falando agora: o contorno no avatar, e o medidor do meu microfone. */
+function updateSpeaking() {
+  const mesh = state.mesh;
+  if (!mesh) return;
+  const now = Date.now();
+  const mic = state.mic;
+  if (mic) {
+    // O medidor: verde com a voz passando, apagado abaixo do limite (que é a marca).
+    const meter = $('#mic-meter-row');
+    meter.style.setProperty('--level', meterPosition(mic.level).toFixed(3));
+    meter.style.setProperty('--threshold', meterPosition(mic.threshold).toFixed(3));
+    meter.classList.toggle('open', mic.open);
+    if (prefs.voiceAuto !== false) $('#sensitivity').value = String(Math.round(mic.threshold));
+  }
+  const levels = [['me', Boolean(mic?.open)]];
+  for (const peer of mesh.peers.values()) levels.push([peer.id, mesh.voiceLevel(peer.id) >= SPEAKING_REMOTE]);
+  for (const [id, loud] of levels) {
+    if (loud) state.speaking.set(id, now);
+    const row = $(`#participants [data-peer="${CSS.escape(id)}"]`);
+    row?.classList.toggle('speaking', isSpeaking(id));
+  }
+}
+
+function renderVoiceUi() {
+  const on = Boolean(state.mic);
+  const btn = $('#mic-btn');
+  btn.setAttribute('aria-pressed', String(on));
+  btn.disabled = state.micStarting;
+  btn.innerHTML = icon(on ? 'mic' : 'mic-off');
+  btn.title = on ? 'Desligar o microfone (Ctrl+Alt+M)' : 'Ligar o microfone (Ctrl+Alt+M)';
+  const key = $('#mic-key');
+  key.setAttribute('aria-pressed', String(on));
+  key.disabled = state.micStarting;
+  key.innerHTML = `${icon(on ? 'mic' : 'mic-off')}${on ? 'Microfone ligado' : 'Microfone desligado'}`;
+  const deaf = $('#deafen-key');
+  deaf.setAttribute('aria-pressed', String(state.deafened));
+  deaf.innerHTML = `${icon(state.deafened ? 'headphones-off' : 'headphones')}${state.deafened ? 'Vozes silenciadas' : 'Silenciar vozes'}`;
+  deaf.title = state.deafened ? 'Voltar a ouvir as vozes' : 'Não ouvir ninguém (o seu microfone desliga junto)';
+  $('#mic-meter-row').hidden = !on;
+  $('#mic-meter-off').hidden = on;
+  $('#mic-device-field').hidden = true;
+  // Ajustes do microfone.
+  const auto = prefs.voiceAuto !== false;
+  $('#sensitivity-auto').checked = auto;
+  const slider = $('#sensitivity');
+  slider.disabled = auto;
+  if (!auto) slider.value = String(prefs.voiceThreshold);
+  $('#voice-noise').checked = prefs.voiceNoise !== false;
+  $('#voice-echo').checked = prefs.voiceEcho !== false;
+  $('#voice-gain').checked = prefs.voiceGain !== false;
+  if (on) renderMicDevices();
+  renderVoicePeople();
+  // Avisos: quem não ouve a voz, e o modo de som que levaria as vozes para a transmissão.
+  const notes = [];
+  const old = [...(state.mesh?.peers.values() || [])].filter((peer) => !supportsVoice(peer)).map((peer) => peer.name);
+  if (old.length) notes.push(`${old.join(', ')} ${old.length > 1 ? 'estão' : 'está'} numa versão antiga do Telão e não ${old.length > 1 ? 'participam' : 'participa'} da voz.`);
+  if (state.share?.audioMode === 'system') notes.push('Transmitindo com "Tudo (sem filtro)", as vozes da sala vão junto no som da transmissão.');
+  notes.push('Ctrl+Alt+M liga e desliga o microfone, até com o jogo aberto. Use fone de ouvido para não dar eco.');
+  $('#voice-hint').textContent = notes.join(' ');
+}
+
+/** Lista dos microfones do PC (só aparece com mais de um). */
+async function renderMicDevices() {
+  let devices = [];
+  try {
+    devices = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput' && d.deviceId !== 'communications');
+  } catch { /* sem lista: fica o microfone atual */ }
+  if (!state.mic) return;
+  const current = state.mic.input?.getSettings().deviceId;
+  $('#mic-device').replaceChildren(...devices.map((d, i) => el('option', { value: d.deviceId, selected: d.deviceId === current }, d.label || `Microfone ${i + 1}`)));
+  $('#mic-device-field').hidden = devices.length < 2;
+}
+
+/** Volume da voz de cada pessoa com o microfone ligado (refeito só quando a lista muda). */
+function renderVoicePeople() {
+  const box = $('#voice-people');
+  const people = [...(state.mesh?.peers.values() || [])].filter((peer) => peer.remoteVoiceId);
+  box.hidden = people.length === 0;
+  const sig = people.map((peer) => `${peer.id}|${peer.name}`).join('/');
+  if (box.dataset.sig === sig) return;
+  box.dataset.sig = sig;
+  box.replaceChildren(...people.map((peer) => {
+    const volume = el('input', {
+      type: 'range', min: '0', max: String(VOICE_MAX_VOLUME), step: '0.05', value: String(voiceVolume(peer.name)),
+      'aria-label': `Volume da voz de ${peer.name}`,
+    });
+    const percent = el('span', { class: 'voice-percent', 'aria-hidden': 'true' });
+    const showPercent = () => {
+      percent.textContent = `${Math.round(Number(volume.value) * 100)}%`;
+      volume.title = `Volume da voz de ${peer.name}: ${percent.textContent}`;
+    };
+    // Um clique duplo volta para 100%.
+    volume.addEventListener('dblclick', () => {
+      volume.value = '1';
+      volume.dispatchEvent(new Event('input'));
+    });
+    const mute = el('button', { type: 'button', class: 'icon-btn small' });
+    const paint = () => {
+      const muted = prefs.voiceVolumes?.[peer.name]?.muted === true;
+      mute.innerHTML = icon(muted ? 'volume-x' : 'volume');
+      mute.classList.toggle('active', muted);
+      mute.title = muted ? `Ouvir ${peer.name} de novo` : `Silenciar a voz de ${peer.name}`;
+      mute.setAttribute('aria-label', mute.title);
+    };
+    volume.addEventListener('input', () => {
+      rememberVoice(peer.name, { volume: Number(volume.value) });
+      showPercent();
+    });
+    showPercent();
+    mute.addEventListener('click', () => {
+      rememberVoice(peer.name, { muted: prefs.voiceVolumes?.[peer.name]?.muted !== true });
+      paint();
+    });
+    paint();
+    return el('div', { class: 'voice-person' }, el('span', { class: 'voice-name', title: peer.name }, peer.name), volume, percent, mute);
+  }));
 }
 
 // ---------- Câmera ----------
@@ -2237,6 +2661,11 @@ async function init() {
   });
   $('#update-apply').addEventListener('click', applyUpdate);
   $('#update-btn').addEventListener('click', applyUpdate);
+  $('#room-update-apply').addEventListener('click', applyUpdate);
+  $('#room-update-dismiss').addEventListener('click', () => {
+    state.updateDismissed = state.update?.version || '';
+    renderUpdate();
+  });
   api.onUpdateStatus(renderUpdate);
   api.getUpdateStatus().then(renderUpdate).catch(() => {});
   $('#console-btn').addEventListener('click', () => {
@@ -2251,6 +2680,31 @@ async function init() {
   $('#pause-btn').addEventListener('click', togglePause);
   $('#leave-btn').addEventListener('click', () => leaveRoom());
   $('#camera-btn').addEventListener('click', () => (state.camera ? stopCamera() : startCamera()));
+  for (const id of ['#mic-btn', '#mic-key']) $(id).addEventListener('click', () => toggleMic());
+  $('#deafen-key').addEventListener('click', () => setDeafened(!state.deafened));
+  $('#mic-device').addEventListener('change', (event) => startMic(event.target.value));
+  $('#sensitivity-auto').addEventListener('change', (event) => {
+    prefs.voiceAuto = event.target.checked;
+    // Ao passar para manual, começa no limite que a automática estava usando.
+    if (!prefs.voiceAuto && state.mic) prefs.voiceThreshold = Math.round(state.mic.threshold);
+    savePrefs();
+    applyGateSettings();
+    renderVoiceUi();
+  });
+  $('#sensitivity').addEventListener('input', (event) => {
+    prefs.voiceThreshold = Number(event.target.value);
+    savePrefs();
+    applyGateSettings();
+  });
+  // Redução de ruído, eco e ganho: o Chromium só aplica ao abrir o microfone, então
+  // com ele ligado a entrada é reaberta (quem recebe não percebe a troca).
+  for (const [id, key] of [['#voice-noise', 'voiceNoise'], ['#voice-echo', 'voiceEcho'], ['#voice-gain', 'voiceGain']]) {
+    $(id).addEventListener('change', (event) => {
+      prefs[key] = event.target.checked;
+      savePrefs();
+      if (state.mic) startMic(prefs.micId);
+    });
+  }
   $('#camera-off-btn').addEventListener('click', () => stopCamera());
   $('#camera-device').addEventListener('change', (event) => startCamera(event.target.value));
   $('#sounds-btn').addEventListener('click', () => {

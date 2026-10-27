@@ -6,9 +6,9 @@ import { createRequire } from 'node:module';
 import {
   QUALITY_PRESETS, effectiveFps, matchPreset, mungeRemoteSdp, pickCodec, resolveCodec, scaleForHeight,
   sendEncoding, startBitrateKbps, suggestLowerSettings, targetBitrate, videoConstraints, wantedHeight,
-  CAMERA_BITRATE, cameraEncoding, cameraErrorMessage,
+  CAMERA_BITRATE, cameraEncoding, cameraErrorMessage, VOICE_CONSTRAINTS, micErrorMessage,
 } from '../src/renderer/media.js';
-import { CAMERA_VERSION, supportsCamera } from '../src/renderer/mesh.js';
+import { CAMERA_VERSION, VOICE_VERSION, supportsCamera, supportsVoice } from '../src/renderer/mesh.js';
 import { AppAudioCapture } from '../src/renderer/app-audio.js';
 import {
   PUBLIC_SERVER, deepLinkFor, inviteLink, parseDeepLink, parseInviteText, parseServerAddress,
@@ -32,9 +32,11 @@ const CSS = (await import('node:fs')).readFileSync(new URL('../src/renderer/styl
 
 // Ambiente mínimo de AudioWorklet para carregar o processador.
 let Processor = null;
+const processors = {};
 globalThis.sampleRate = 48000;
 globalThis.AudioWorkletProcessor = class { constructor() { this.port = { onmessage: null }; } };
-globalThis.registerProcessor = (_name, cls) => { Processor = cls; };
+globalThis.registerProcessor = (name, cls) => { processors[name] = cls; Processor = cls; };
+await import('../src/renderer/voice-gate.js');
 await import('../src/renderer/pcm-worklet.js');
 
 function frame(type, id, payload) {
@@ -378,6 +380,50 @@ test('som dos apps: avisa quem ficou de fora por ter aberto o Telão', () => {
   assert.match(warnings[0], /O som do firefox fica fora da transmissão porque o Telão foi aberto por ele/);
   assert.match(warnings[0], /menu Iniciar/);
   assert.deepEqual(capture.summary().excluded, ['Discord', 'firefox', 'explorer', 'outro']);
+});
+
+test('voz: microfone tratado, erros claros, só para quem está na 1.5', () => {
+  assert.deepEqual(VOICE_CONSTRAINTS, { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 });
+  assert.match(micErrorMessage({ name: 'NotAllowedError' }), /Privacidade e segurança → Microfone/);
+  assert.match(micErrorMessage({ name: 'NotReadableError' }), /ocupado/);
+  assert.match(micErrorMessage({ name: 'NotFoundError' }), /Nenhum microfone/);
+  assert.equal(VOICE_VERSION, '1.5.0');
+  assert.equal(supportsVoice({ state: { version: '1.5.0' } }), true);
+  assert.equal(supportsVoice({ state: { version: '1.4.1' } }), false, 'a 1.4 juntaria a voz ao som da tela');
+  assert.equal(supportsCamera({ state: { version: '1.4.1' } }), true, 'a 1.4 continua recebendo câmera');
+  assert.equal(supportsVoice({ state: {} }), false);
+});
+
+test('sensibilidade do microfone: só a voz acima do limite passa', () => {
+  const VoiceGate = processors['telao-voice-gate'];
+  const gate = new VoiceGate();
+  const reports = [];
+  gate.port.postMessage = (msg) => reports.push(msg);
+  const block = (amplitude) => Float32Array.from({ length: 128 }, (_, i) => amplitude * Math.sin(i / 3));
+  // Roda "seconds" de áudio com essa amplitude e devolve o volume que saiu no último bloco.
+  const run = (amplitude, seconds) => {
+    const out = [new Float32Array(128)];
+    for (let t = 0; t < seconds * 48000 / 128; t++) gate.process([[block(amplitude)]], [out]);
+    return Math.max(...out[0].map(Math.abs));
+  };
+  // Automática: com barulho de fundo baixo (~-50 dB), o barulho não passa e a voz (~-15 dB) passa.
+  assert.ok(run(0.004, 2) < 1e-4, 'barulho de fundo vira silêncio');
+  assert.ok(run(0.25, 0.1) > 0.2, 'a voz passa');
+  assert.ok(run(0.004, 0.15) > 0, 'segura aberto entre as palavras');
+  assert.ok(run(0.004, 0.6) < 1e-4, 'e fecha depois');
+  const auto = reports.at(-1);
+  assert.equal(auto.open, false);
+  assert.ok(auto.threshold > -45 && auto.threshold < -30, `limite automático acima do ruído (${auto.threshold.toFixed(1)} dB)`);
+  // Manual: limite alto (-10 dB) corta até a voz; baixo (-70 dB) deixa passar o barulho.
+  gate.port.onmessage({ data: { auto: false, threshold: -10 } });
+  assert.ok(run(0.25, 0.5) < 1e-4, 'limite manual alto corta a voz');
+  gate.port.onmessage({ data: { threshold: -70 } });
+  assert.ok(run(0.004, 0.2) > 0.003, 'limite manual baixo deixa o barulho passar');
+  assert.equal(reports.at(-1).threshold, -70);
+  // Sem entrada (microfone trocando): silêncio, sem erro.
+  const out = [new Float32Array(128)];
+  assert.equal(gate.process([[]], [out]), true);
+  assert.ok(out[0].every((x) => x === 0));
 });
 
 test('predefinições de qualidade e H.264 automático', () => {
