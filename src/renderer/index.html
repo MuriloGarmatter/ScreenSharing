@@ -18,7 +18,7 @@
         <strong class="wordmark">Telão</strong>
       </div>
       <div class="topbar-right">
-        <button type="button" class="icon-btn" data-open-appearance title="Aparência: tema e cores" aria-label="Aparência: tema e cores" data-icon="palette"></button>
+        <button type="button" class="icon-btn" data-open-appearance title="Ajustes: sons, tema e cores" aria-label="Ajustes: sons, tema e cores" data-icon="sliders"></button>
       </div>
     </header>
 
@@ -36,9 +36,9 @@
             </dl>
           </div>
           <ul class="idle-specs" aria-label="O que o Telão faz">
-            <li><strong>1080p · 60 fps</strong><span>sem pagar nada</span></li>
+            <li><strong>Até 1080p · 60 fps</strong><span>sem pagar nada</span></li>
             <li><strong>Som por app</strong><span>a call do Discord fica de fora</span></li>
-            <li><strong>Direto entre os PCs</strong><span>sem servidor no meio</span></li>
+            <li><strong>Direto entre os PCs</strong><span>o servidor só conecta vocês</span></li>
           </ul>
         </div>
         <div class="umd"><span class="tally" aria-hidden="true"></span><span class="umd-name">Aguardando sessão</span><span id="slate-version" class="umd-meta"></span></div>
@@ -63,7 +63,7 @@
           <strong>Você copiou um convite</strong>
           <span id="clipboard-invite-room"></span>
         </div>
-        <button type="button" id="clipboard-use" class="btn small primary">Entrar</button>
+        <button type="button" id="clipboard-use" class="btn small">Entrar</button>
         <button type="button" id="clipboard-dismiss" class="icon-btn small" title="Ignorar" aria-label="Ignorar este convite" data-icon="x"></button>
       </div>
 
@@ -95,8 +95,9 @@
             <button type="button" id="room-random" class="icon-btn" title="Gerar um nome difícil de adivinhar" aria-label="Gerar um nome de sala" data-icon="shuffle"></button>
           </span>
         </div>
-        <label class="field" id="server-password-field">
-          <span>Senha do servidor <em>(se houver)</em></span>
+        <!-- Só aparece quando a sala pede senha (o servidor responde "senha incorreta"). -->
+        <label class="field" id="server-password-field" hidden>
+          <span>Senha <em>(pedida por quem criou a sala)</em></span>
           <input id="server-password" type="password" autocomplete="off">
         </label>
       </div>
@@ -158,18 +159,18 @@
         <strong class="wordmark">Telão</strong>
         <span class="sep" aria-hidden="true"></span>
         <span id="room-title" class="room-title"></span>
-        <span id="server-status" class="pill ok">conectado</span>
+        <span id="server-status" class="pill ok" role="status">conectado</span>
       </div>
       <div class="topbar-right">
-        <!-- Sempre à vista: apagada fora do ar, acende quando você transmite. -->
-        <div id="on-air" class="on-air off" title="Você não está transmitindo">
-          <span id="on-air-lamp" class="on-air-lamp">No ar</span>
+        <!-- Sempre à vista: apagada fora do ar, acende quando você transmite. No ar,
+             é também a tecla de pausar e retomar. -->
+        <button type="button" id="on-air" class="on-air off" aria-disabled="true" title="Você não está transmitindo">
+          <span id="on-air-lamp" class="on-air-lamp" data-hover="Pausar">No ar</span>
           <span id="on-air-time" class="timecode">--:--:--</span>
-        </div>
+        </button>
         <button id="update-btn" class="btn small" aria-label="Atualizar o Telão" hidden><span data-icon="download"></span><span class="label">Atualizar</span></button>
         <button id="console-btn" class="icon-btn" aria-pressed="true" aria-controls="console" data-icon="sidebar"></button>
-        <button id="sounds-btn" class="icon-btn" aria-pressed="true"></button>
-        <button class="icon-btn" data-open-appearance title="Aparência: tema e cores" aria-label="Aparência: tema e cores" data-icon="palette"></button>
+        <button class="icon-btn" data-open-appearance title="Ajustes: sons, tema e cores" aria-label="Ajustes: sons, tema e cores" data-icon="sliders"></button>
         <button id="mic-btn" class="icon-btn live-key" aria-pressed="false" aria-label="Microfone" data-icon="mic-off"></button>
         <button id="camera-btn" class="icon-btn camera-btn live-key" aria-pressed="false" aria-label="Câmera" data-icon="camera"></button>
         <button id="share-btn" class="btn primary"></button>
@@ -177,13 +178,22 @@
       </div>
     </header>
 
-    <section id="stage" class="stage">
+    <!-- F6 pula entre a barra do alto, o palco e o painel (ver o app.js). -->
+    <section id="stage" class="stage" tabindex="-1" aria-label="Telas">
       <!-- Ninguém no ar: um monitor do multivisor sem sinal. -->
       <div id="empty-stage" class="empty">
         <div class="empty-screen">
           <h2 id="empty-title">Ninguém está transmitindo</h2>
           <p id="empty-idle">Quando alguém compartilhar a tela ou ligar a câmera, ela aparece aqui. Clique em <strong>Compartilhar tela</strong> para transmitir a sua.</p>
           <p id="empty-unwatched" hidden>Para voltar a assistir alguém, clique no nome dele embaixo, em <strong>Não assistindo</strong>.</p>
+          <!-- Sozinho na sala: o convite em destaque, para chamar a turma. -->
+          <div id="empty-alone" class="empty-alone" hidden>
+            <p id="empty-alone-text"></p>
+            <div id="empty-invite" class="empty-invite">
+              <code id="empty-invite-link"></code>
+              <button type="button" id="empty-invite-copy" class="btn"><span data-icon="copy"></span>Copiar convite</button>
+            </div>
+          </div>
         </div>
         <div class="umd"><span class="tally" aria-hidden="true"></span><span class="umd-name">Sem sinal</span></div>
       </div>
@@ -194,18 +204,18 @@
       <div id="offscreen" class="offscreen" role="group" aria-label="Transmissões que você não está assistindo" hidden></div>
     </section>
 
-    <aside id="console" class="sidebar">
-      <!-- Versão nova pronta: a mesma faixa da tela inicial, no topo do painel da sala. -->
+    <aside id="console" class="sidebar" tabindex="-1" aria-label="Painel da sala">
+      <!-- Versão nova pronta: a faixa da tela inicial, numa linha só, no topo do painel
+           da sala (o detalhe fica na dica do mouse). -->
       <div id="room-update" class="update-banner room-update" role="status" hidden>
         <span class="update-icon" data-icon="download"></span>
         <div class="update-text">
           <strong id="room-update-title"></strong>
-          <span id="room-update-detail"></span>
         </div>
         <button type="button" id="room-update-apply" class="btn small"></button>
         <button type="button" id="room-update-dismiss" class="icon-btn small" title="Agora não" aria-label="Agora não" data-icon="x"></button>
       </div>
-      <section class="panel">
+      <section class="panel" id="people-panel">
         <h3>Na sala <span id="participant-count" class="count"></span></h3>
         <ul id="participants" class="participants"></ul>
       </section>
@@ -217,7 +227,7 @@
           <button type="button" id="deafen-key" class="btn small voice-key" aria-pressed="false"></button>
         </div>
         <div id="voice-people" class="voice-people" role="group" aria-label="Volume da voz de cada pessoa" hidden></div>
-        <p id="voice-hint" class="hint"></p>
+        <p id="voice-hint" class="hint" hidden></p>
         <details class="advanced" id="voice-settings">
           <summary>Ajustes do microfone</summary>
           <div class="advanced-body">
@@ -237,6 +247,7 @@
             <label class="check"><input type="checkbox" id="voice-noise"><span>Redução de ruído <em>(ventilador, teclado, barulho de fundo)</em></span></label>
             <label class="check"><input type="checkbox" id="voice-echo"><span>Cancelamento de eco <em>(desligue só se usar fone)</em></span></label>
             <label class="check"><input type="checkbox" id="voice-gain"><span>Ganho automático <em>(deixa a voz sempre no mesmo volume)</em></span></label>
+            <p class="hint">Use fone de ouvido para não dar eco. <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>M</kbd> liga e desliga o microfone, até com o jogo aberto.</p>
           </div>
         </details>
       </section>
@@ -263,7 +274,7 @@
             <div class="preview-wrap">
               <video id="local-preview" muted playsinline autoplay></video>
               <div id="preview-paused" class="paused-overlay" hidden><span data-icon="pause"></span>Pausada: os outros veem uma tela preta</div>
-              <div id="preview-reactions" class="reactions-layer" aria-live="polite"></div>
+              <div id="preview-reactions" class="reactions-layer"></div>
             </div>
             <div class="share-live-info umd"><span class="tally" aria-hidden="true"></span><span class="umd-name">Saída</span><span id="share-source"></span></div>
           </div>
@@ -284,23 +295,29 @@
             <button id="suggestion-dismiss" class="btn small ghost">Agora não</button>
           </div>
         </div>
-        <div id="presets" class="presets" role="group" aria-label="Qualidade da transmissão"></div>
-        <details class="advanced quality-advanced" id="quality-advanced">
-          <summary>Ajustes finos <span id="preset-custom" class="tag" hidden>personalizado</span></summary>
-          <div class="quality">
-            <label class="field"><span>Resolução</span><select id="q-resolution"></select></label>
-            <label class="field"><span>Quadros/s (FPS)</span><select id="q-fps"></select></label>
-            <label class="field"><span>Bitrate máximo</span><select id="q-bitrate"></select></label>
-            <label class="field" title="Movimento: jogos e vídeos (prioriza a fluidez). Nitidez: texto e código (prioriza letras legíveis)."><span>Otimizar para</span><select id="q-optimize"></select></label>
-            <label class="field wide"><span>Codec de vídeo</span><select id="q-codec"></select></label>
+        <!-- Fora do ar: só o resumo; a qualidade se escolhe no seletor, junto com a tela. -->
+        <p id="share-idle" class="hint"></p>
+        <!-- No ar: a qualidade numa linha, que abre as teclas. Enquanto o seletor de tela
+             está aberto, as teclas vão para lá (ver openPicker). -->
+        <details class="advanced share-quality" id="share-quality" hidden>
+          <summary id="share-quality-summary">Qualidade</summary>
+          <div id="share-quality-slot" class="share-quality-slot">
+            <div id="quality-box" class="quality-box">
+              <div id="presets" class="presets" role="group" aria-label="Qualidade da transmissão"></div>
+              <details class="advanced quality-advanced" id="quality-advanced">
+                <summary>Ajustes finos <span id="preset-custom" class="tag" hidden>personalizado</span></summary>
+                <div class="quality">
+                  <label class="field"><span>Resolução</span><select id="q-resolution"></select></label>
+                  <label class="field"><span>Quadros/s (FPS)</span><select id="q-fps"></select></label>
+                  <label class="field"><span>Bitrate máximo</span><select id="q-bitrate"></select></label>
+                  <label class="field" title="Movimento: jogos e vídeos (prioriza a fluidez). Nitidez: texto e código (prioriza letras legíveis)."><span>Otimizar para</span><select id="q-optimize"></select></label>
+                  <label class="field wide"><span>Codec de vídeo</span><select id="q-codec"></select></label>
+                </div>
+                <p id="bitrate-hint" class="hint"></p>
+              </details>
+            </div>
           </div>
         </details>
-        <p id="bitrate-hint" class="hint"></p>
-        <p class="hint shortcuts-hint">
-          Atalhos, que funcionam até com o jogo aberto:
-          <span class="shortcut"><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>T</kbd> começa/para</span> ·
-          <span class="shortcut"><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>P</kbd> pausa</span>
-        </p>
         <label class="check" id="anti-echo-row">
           <input type="checkbox" id="anti-echo" checked>
           <span>Silenciar o som dos outros enquanto eu transmito com som <em>(evita eco)</em></span>
@@ -318,24 +335,42 @@
         <div id="invite-internet" class="invite-group"></div>
         <p id="invite-hint" class="hint"></p>
       </section>
+
+      <section class="panel panel-foot" id="shortcuts-panel">
+        <details class="advanced" id="shortcuts">
+          <summary>Atalhos do teclado</summary>
+          <div class="advanced-body">
+            <p class="hint">Funcionam até com o jogo aberto, enquanto você está numa sala.</p>
+            <dl class="shortcut-list">
+              <div><dt><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>T</kbd></dt><dd>Começa ou para a transmissão</dd></div>
+              <div><dt><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>P</kbd></dt><dd>Pausa ou retoma</dd></div>
+              <div><dt><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>M</kbd></dt><dd>Liga ou desliga o microfone</dd></div>
+              <div><dt><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>D</kbd></dt><dd>Silencia as vozes (ou volta a ouvir)</dd></div>
+            </dl>
+            <p class="hint">Numa tela, <kbd>Enter</kbd> abre os controles dela e <kbd>Esc</kbd> volta. <kbd>F6</kbd> pula entre a barra do alto, as telas e este painel.</p>
+          </div>
+        </details>
+      </section>
     </aside>
   </div>
 
   <!-- As vozes da sala tocam aqui (um <audio> por pessoa, sem nada na tela). -->
   <div id="voices" hidden></div>
+  <!-- Lido pelo leitor de tela em cada monitor (ver setupTileKeys). -->
+  <p id="tile-keys-help" hidden>Enter abre os controles desta tela; Esc volta.</p>
 
   <!-- Escolha do que transmitir -->
-  <dialog id="picker" class="picker">
+  <dialog id="picker" class="picker" aria-labelledby="picker-title">
     <header class="picker-head">
-      <h2>O que você quer transmitir?</h2>
+      <h2 id="picker-title">O que você quer transmitir?</h2>
       <button id="picker-close" class="icon-btn" title="Fechar" aria-label="Fechar" data-icon="x"></button>
     </header>
-    <div class="picker-tabs" role="tablist">
-      <button class="tab active" data-tab="screen" role="tab">Telas inteiras</button>
-      <button class="tab" data-tab="window" role="tab">Janelas</button>
-      <button id="picker-refresh" class="btn small ghost" aria-label="Atualizar a lista de telas"><span data-icon="refresh"></span>Atualizar</button>
+    <div class="picker-tabs" role="tablist" aria-label="Tipo de fonte">
+      <button class="tab active" data-tab="screen" role="tab" aria-selected="true" aria-controls="source-grid">Telas inteiras</button>
+      <button class="tab" data-tab="window" role="tab" aria-selected="false" aria-controls="source-grid">Janelas</button>
+      <button id="picker-refresh" class="btn small ghost" aria-label="Recarregar a lista de telas"><span data-icon="refresh"></span>Recarregar</button>
     </div>
-    <div id="source-grid" class="source-grid"></div>
+    <div id="source-grid" class="source-grid" role="tabpanel" aria-label="Telas e janelas"></div>
     <footer class="picker-foot">
       <div id="audio-row" class="audio-row">
         <label class="check">
@@ -348,7 +383,7 @@
       <div id="pick-apps" class="pick-apps" hidden>
         <div class="pick-head">
           <span class="field-label">Apps que vão no som</span>
-          <button type="button" id="pick-refresh" class="btn small ghost" aria-label="Atualizar a lista de apps"><span data-icon="refresh"></span>Atualizar</button>
+          <button type="button" id="pick-refresh" class="btn small ghost" aria-label="Recarregar a lista de apps"><span data-icon="refresh"></span>Recarregar</button>
         </div>
         <div id="pick-list" class="pick-list"></div>
         <p class="hint">Aparecem os apps que estão usando o som agora (ou há pouco). Os que você marcar ficam salvos para as próximas vezes.</p>
@@ -359,6 +394,9 @@
           <textarea id="exclude-list" rows="6" spellcheck="false"></textarea>
         </label>
         <button id="exclude-reset" class="btn small ghost" type="button">Restaurar a lista padrão</button>
+      </div>
+      <div id="picker-quality" class="picker-quality">
+        <span class="field-label">Qualidade</span>
       </div>
       <div class="picker-actions">
         <p id="audio-hint" class="hint"></p>
@@ -372,10 +410,14 @@
   <!-- Aparência -->
   <dialog id="appearance" class="appearance" aria-labelledby="appearance-title">
     <header class="picker-head">
-      <h2 id="appearance-title">Aparência</h2>
+      <h2 id="appearance-title">Ajustes</h2>
       <button id="appearance-close" class="icon-btn" title="Fechar" aria-label="Fechar" data-icon="x"></button>
     </header>
     <div class="appearance-body">
+      <div class="appearance-group">
+        <span class="field-label">Sons</span>
+        <label class="check"><input type="checkbox" id="sounds-on"><span>Sons de aviso <em>(alguém começou a transmitir, você entrou no ar, pausou ou parou; os atalhos tocam sempre)</em></span></label>
+      </div>
       <div class="appearance-group">
         <span class="field-label" id="theme-label">Tema</span>
         <div class="segmented three" role="radiogroup" aria-labelledby="theme-label">
@@ -391,20 +433,36 @@
         <span class="field-label" id="accent-label">Cor de destaque <em>(a luz de “no ar”: teclas acesas, quem está transmitindo, a tela em destaque)</em></span>
         <div id="accent-swatches" class="swatches" role="group" aria-labelledby="accent-label"></div>
         <label class="custom-color" id="accent-custom-label">
-          <input type="color" id="accent-custom" aria-label="Escolher outra cor">
+          <input type="color" id="accent-custom" aria-label="Escolher outra cor" aria-describedby="accent-warning">
           <span>Outra cor…</span>
           <code id="accent-hex"></code>
         </label>
+        <p id="accent-warning" class="hint accent-warning" hidden></p>
       </div>
       <p class="hint">As mudanças valem na hora e ficam salvas neste computador.</p>
     </div>
     <footer class="appearance-foot">
-      <button id="appearance-reset" class="btn ghost">Restaurar o padrão</button>
+      <button id="appearance-reset" class="btn ghost">Restaurar tema e cor</button>
       <span class="spacer"></span>
       <button id="appearance-done" class="btn primary">Pronto</button>
     </footer>
   </dialog>
 
+  <!-- Confirmação (sair hospedando, trocar de sala, atualizar no meio da sala). -->
+  <dialog id="confirm" class="confirm" aria-labelledby="confirm-title" aria-describedby="confirm-text">
+    <div class="confirm-body">
+      <h2 id="confirm-title"></h2>
+      <p id="confirm-text"></p>
+    </div>
+    <footer class="appearance-foot">
+      <span class="spacer"></span>
+      <button type="button" id="confirm-cancel" class="btn ghost">Cancelar</button>
+      <button type="button" id="confirm-ok" class="btn"></button>
+    </footer>
+  </dialog>
+
   <div id="toasts" class="toasts" aria-live="polite"></div>
+  <!-- Para leitores de tela: "Você está no ar", "Transmissão pausada"... -->
+  <div id="sr-status" class="sr-only" role="status" aria-live="polite"></div>
 </body>
 </html>

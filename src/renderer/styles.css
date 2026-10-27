@@ -19,6 +19,7 @@
   --seg-bg: #0f1013;
   --seg-active: #2b2e33;
   --key-highlight: rgba(255, 255, 255, 0.06);
+  --strong-hover: #ffffff; /* tecla forte (neutra) com o mouse em cima */
 
   --accent: #d92b26;
   --accent-hover: #bb2521;
@@ -35,10 +36,11 @@
   --wall-faint: #4f535a; /* lâmpada apagada, texto de espera no monitor */
   --meter-off: #2b2e33; /* segmento apagado do medidor */
 
-  --danger: #e5484d;
-  --danger-soft: rgba(229, 72, 77, 0.14);
-  --danger-border: rgba(229, 72, 77, 0.45);
-  --danger-text: #ff9b9e;
+  /* Erro em carmim (puxado para o rosa), para não se confundir com o vermelho de "no ar". */
+  --danger: #f04f6a;
+  --danger-soft: rgba(240, 79, 106, 0.14);
+  --danger-border: rgba(240, 79, 106, 0.45);
+  --danger-text: #ff9db0;
   --ok: #3dd68c;
   --ok-text: #7fe7b4;
   --warn: #f5a524;
@@ -71,11 +73,12 @@
   --seg-bg: #e8eaee;
   --seg-active: #ffffff;
   --key-highlight: rgba(255, 255, 255, 0.9);
+  --strong-hover: #2b2e33;
 
-  --danger: #d1242b;
-  --danger-soft: rgba(209, 36, 43, 0.08);
-  --danger-border: rgba(209, 36, 43, 0.35);
-  --danger-text: #a8161c;
+  --danger: #c81e4a;
+  --danger-soft: rgba(200, 30, 74, 0.08);
+  --danger-border: rgba(200, 30, 74, 0.35);
+  --danger-text: #9b1036;
   --ok: #1f9d55;
   --ok-text: #11693a;
   --warn: #c27c0e;
@@ -109,7 +112,7 @@ button { cursor: pointer; }
 :focus-visible { outline: 2px solid var(--accent-ui); outline-offset: 2px; }
 h1, h2, h3 { text-wrap: balance; }
 
-/* Barras de rolagem finas, da cor da mesa; acendem ao arrastar. */
+/* Barras de rolagem finas, da cor da mesa; clareiam ao arrastar. */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
@@ -117,7 +120,7 @@ h1, h2, h3 { text-wrap: balance; }
   border: 3px solid transparent; border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover { background-color: var(--muted); }
-::-webkit-scrollbar-thumb:active { background-color: var(--accent-ui); }
+::-webkit-scrollbar-thumb:active { background-color: var(--text); }
 
 svg.i {
   width: 18px; height: 18px; flex: none;
@@ -136,12 +139,14 @@ svg.i {
 .btn:hover:not(:disabled) { background: var(--raised-hover); }
 .btn:active:not(:disabled) { box-shadow: inset 0 1px 3px var(--shadow-sm); }
 .btn:disabled { opacity: 0.45; cursor: default; box-shadow: none; }
-/* Tecla acesa: a cor de destaque é a luz por trás da tecla. */
+/* Tecla forte: a ação principal de cada lugar (Compartilhar tela, Entrar na sala,
+   Transmitir). Neutra e invertida (clara no escuro, escura no claro): o vermelho
+   cheio é só do que está no ar. */
 .btn.primary {
-  background: var(--accent); border-color: var(--accent); color: var(--accent-text);
+  background: var(--text); border-color: var(--text); color: var(--panel);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 1px 3px var(--shadow-sm);
 }
-.btn.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+.btn.primary:hover:not(:disabled) { background: var(--strong-hover); border-color: var(--strong-hover); }
 .btn.ghost { background: transparent; border-color: transparent; color: var(--muted); box-shadow: none; }
 .btn.ghost:hover:not(:disabled) { background: var(--raised); color: var(--text); }
 /* Parar e "transmitindo": tecla comum, só o ícone tem a cor do aviso. */
@@ -198,7 +203,24 @@ textarea:focus { border-color: var(--accent-ui); box-shadow: inset 0 1px 2px var
 .grow { flex: 1; }
 
 .check { display: flex; gap: 10px; align-items: flex-start; font-size: 13.5px; cursor: pointer; }
-.check input { flex: none; width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--accent); }
+/* Caixas de marcar neutras: a cor de destaque é só a luz de "no ar". */
+.check input { flex: none; width: 16px; height: 16px; margin: 2px 0 0; accent-color: var(--text); }
+
+/* Faders: trilho fino e capa quadrada neutra com o risco no meio, como num console
+   de áudio. A cor de destaque fica para o que está no ar. */
+input[type="range"] {
+  -webkit-appearance: none; appearance: none;
+  height: 20px; margin: 0; background: transparent; cursor: pointer;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px; border-radius: 1px; background: var(--meter-off); box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 12px; height: 18px; margin-top: -7px; border-radius: 2px;
+  background: linear-gradient(90deg, transparent 5px, var(--panel) 5px 7px, transparent 7px), var(--text);
+  box-shadow: 0 1px 2px var(--shadow-sm);
+}
+input[type="range"]:disabled { cursor: default; opacity: 0.45; }
 
 .hint { margin: 0; color: var(--muted); font-size: 12.5px; }
 .error {
@@ -241,7 +263,9 @@ details > summary::-webkit-details-marker { display: none; }
 /* ---------- Marca e barra superior ---------- */
 .logo { display: inline-flex; color: var(--text); }
 .logo .mark { width: 22px; height: 22px; }
-.mark-umd, .mark-tally { fill: var(--accent); }
+/* O símbolo fica apagado e acende enquanto você transmite (como o ícone da bandeja). */
+.mark-umd, .mark-tally { fill: var(--muted); transition: fill 0.2s; }
+.room.is-live .mark-umd, .room.is-live .mark-tally { fill: var(--accent); }
 .wordmark {
   font-family: var(--label); font-stretch: condensed; font-weight: 700;
   font-size: 20px; letter-spacing: 0.04em; text-transform: uppercase;
@@ -293,28 +317,29 @@ details > summary::-webkit-details-marker { display: none; }
 .pill.bad { color: var(--danger-text); }
 .pill.ok::before, .pill.warn::before, .pill.bad::before { opacity: 1; }
 .pill.signal-pill::before { display: none; }
-/* A lâmpada NO AR: sempre acesa na cor de destaque. */
-.pill.live {
-  padding: 4px 7px 3px; border-radius: 2px;
-  background: var(--accent); color: var(--accent-text);
-  font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
-}
-.pill.live::before { display: none; }
 .tag {
   padding: 2px 6px; border-radius: 2px; border: 1px solid var(--border-strong);
   font: 600 12px/1.2 var(--label); color: var(--muted);
 }
 
+/* A lâmpada NO AR é também a tecla de pausar: no ar, o mouse em cima mostra o que
+   o clique faz ("Pausar" ou "Retomar"). */
 .on-air {
-  display: inline-flex; flex: none; align-items: stretch; height: 30px; overflow: hidden; white-space: nowrap;
-  border-radius: 3px; border: 1px solid var(--accent);
+  display: inline-flex; flex: none; align-items: stretch; height: 30px; padding: 0; overflow: hidden; white-space: nowrap;
+  border-radius: 3px; border: 1px solid var(--accent); background: none; color: inherit;
   font-family: var(--label); font-stretch: condensed; font-variant-numeric: tabular-nums;
 }
+.on-air.off { cursor: default; }
 .on-air-lamp {
-  display: grid; place-items: center; padding: 0 10px;
+  display: grid; place-items: center; min-width: 82px; padding: 0 10px;
   background: var(--accent); color: var(--accent-text);
   font-size: 13px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+  transition: background-color 0.15s;
 }
+.on-air:not(.off):hover .on-air-lamp { font-size: 0; }
+.on-air:not(.off):hover .on-air-lamp::after { content: attr(data-hover); font-size: 13px; letter-spacing: 0.1em; }
+.on-air:not(.off):not(.paused):hover .on-air-lamp { background: var(--accent-hover); }
+.on-air.paused:hover .on-air-lamp { background: var(--warn-soft); }
 .on-air .timecode {
   display: grid; place-items: center; padding: 0 10px;
   background: var(--input); color: var(--text); font-size: 15px; font-weight: 600; letter-spacing: 0.02em;
@@ -356,7 +381,7 @@ details > summary::-webkit-details-marker { display: none; }
   margin: 0; max-width: 18ch; overflow-wrap: anywhere;
   font: 600 40px/1.1 var(--label); letter-spacing: -0.015em; color: #fff;
 }
-.slate-room.placeholder { color: var(--wall-faint); }
+.slate-room.placeholder { color: var(--wall-muted); }
 .slate-rows { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 18px; margin: 18px 0 0; }
 .slate-rows div { display: contents; }
 .slate-rows dt {
@@ -382,7 +407,8 @@ details > summary::-webkit-details-marker { display: none; }
 .join-title { margin: 0 0 2px; font: 600 20px/1.25 var(--label); letter-spacing: -0.005em; }
 .mode-fields { display: flex; flex-direction: column; gap: 14px; }
 
-/* Entrar / Criar: duas teclas de seleção lado a lado; a escolhida acende. */
+/* Entrar / Criar: duas teclas de seleção lado a lado; a escolhida fica em relevo,
+   com a aresta acesa (ver "Seleção", mais abaixo). */
 .mode-choice-wrap { display: flex; flex-direction: column; gap: 8px; }
 .mode-choice { position: relative; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .mode-choice input { position: absolute; opacity: 0; pointer-events: none; }
@@ -394,11 +420,18 @@ details > summary::-webkit-details-marker { display: none; }
   transition: background-color 0.15s, border-color 0.15s;
 }
 .mode-choice label:hover { background: var(--raised-hover); }
-.mode-choice input:checked + label {
-  background: var(--accent); border-color: var(--accent); color: var(--accent-text);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 1px 3px var(--shadow-sm);
+.mode-choice input:focus-visible + label { outline: 2px solid var(--accent-ui); outline-offset: 3px; }
+
+/* Seleção (Entrar/Criar, formato, tela escolhida, apps no som): a tecla escolhida
+   fica em relevo, com uma aresta de 2 px na cor de destaque. Sem preenchimento: o
+   vermelho cheio é só do que está no ar. */
+.mode-choice input:checked + label,
+.preset[aria-pressed="true"],
+.source-card.selected,
+.pick-list .check:has(input:checked) {
+  background: var(--raised-hover); border-color: var(--accent-ui); color: var(--text);
+  box-shadow: 0 0 0 1px var(--accent-ui), inset 0 1px 0 var(--key-highlight);
 }
-.mode-choice input:focus-visible + label { outline: 2px solid var(--accent-ui); outline-offset: 2px; }
 
 /* Versão nova pronta: faixa neutra (a cor de destaque fica para o que está no ar). */
 .update-banner {
@@ -409,20 +442,23 @@ details > summary::-webkit-details-marker { display: none; }
 /* Na sala, a faixa fica no topo do painel, com o mesmo respiro dos painéis. */
 .room-update { margin: 14px 16px 2px; }
 .room-update .icon-btn { flex: none; }
-/* O botão "Atualizar" do alto ganha um ponto de novidade (verde: é aviso, não "no ar"). */
+/* O botão "Atualizar" do alto ganha uma lâmpada de novidade: quadrada, como todas,
+   e verde (é aviso, não "no ar"). Na sala, a faixa fica numa linha só. */
 #update-btn { position: relative; }
 #update-btn::after {
   content: ''; position: absolute; top: -3px; right: -3px;
-  width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 2px var(--panel);
+  width: 7px; height: 7px; border-radius: 1px; background: var(--ok); box-shadow: 0 0 0 2px var(--panel);
 }
+.room-update .update-text strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .update-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .update-text span { font-size: 12.5px; color: var(--muted); }
 
+/* Convite copiado: faixa neutra, como a de atualização (a tecla acesa é "Entrar na sala"). */
 .clipboard-invite {
   display: flex; align-items: center; gap: 10px; padding: 9px 9px 9px 12px;
-  border-radius: 4px; border: 1px solid var(--accent-ui); background: var(--accent-soft);
+  border-radius: 4px; border: 1px solid var(--border-strong); background: var(--raised);
 }
-.clipboard-icon { display: inline-flex; color: var(--accent-ui); }
+.clipboard-icon { display: inline-flex; color: var(--text); }
 .clipboard-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .clipboard-text span { font-size: 12.5px; color: color-mix(in srgb, var(--text) 82%, transparent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -434,11 +470,18 @@ details > summary::-webkit-details-marker { display: none; }
   grid-template-rows: 48px minmax(0, 1fr);
 }
 .room > .topbar { grid-column: 1 / -1; }
+/* Janela estreita: o painel cede espaço para o multivisor. */
+@media (max-width: 1100px) {
+  .room { grid-template-columns: minmax(0, 1fr) 300px; }
+  /* A faixa de atualização fica numa linha só: sem o ícone, o título cabe. */
+  .room-update .update-icon, .room-update .update-word { display: none; }
+  /* Conectado: só a lâmpada (o texto volta quando há problema); o nome da sala ganha espaço. */
+  #server-status.ok { font-size: 0; gap: 0; }
+}
 /* Painel da sala recolhido: o multivisor fica com a janela toda. */
 .room.console-hidden { grid-template-columns: minmax(0, 1fr); }
 .room.console-hidden > .sidebar { display: none; }
 #console-btn[aria-pressed="false"] { color: var(--muted); }
-#sounds-btn[aria-pressed="false"] { color: var(--muted); }
 
 /* A parede do multivisor: o palco em cima; embaixo, a fileira (câmeras e o que não
    está em destaque) e a faixa de quem você parou de assistir. */
@@ -455,6 +498,15 @@ details > summary::-webkit-details-marker { display: none; }
 .empty-screen {
   display: grid; place-content: center; justify-items: start; gap: 10px;
   padding: 32px clamp(28px, 6vw, 72px); color: var(--wall-muted);
+}
+/* Sozinho na sala: o convite, grande, com a tecla de copiar. */
+.empty.is-alone .empty-screen { grid-template-columns: minmax(0, 560px); }
+.empty-alone { display: flex; flex-direction: column; gap: 16px; width: 100%; }
+.empty-invite { display: flex; gap: 8px; min-width: 0; }
+.empty-invite code {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  padding: 7px 11px; border-radius: 4px; background: var(--umd); border: 1px solid var(--umd-line);
+  font: 13px/1.5 var(--mono); color: var(--wall-text); user-select: text;
 }
 .empty h2 { margin: 0; font: 600 26px/1.2 var(--label); color: #fff; }
 .empty p { margin: 0; max-width: 46ch; }
@@ -512,17 +564,21 @@ details > summary::-webkit-details-marker { display: none; }
 .tile.pinned .tile-muted { color: inherit; }
 .tile-signal { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; flex: none; color: var(--wall-text); }
 
-/* Tally: no ar = acesa; conectando = tracejada; pausada = contorno âmbar. */
-.tile .tally { background: var(--accent); border-color: var(--accent); }
+/* Tally: no ar = acesa (branca: a cor de destaque é só das suas saídas e da tela em
+   destaque); conectando = tracejada; pausada = contorno âmbar. */
+.tile .tally { background: var(--wall-text); border-color: var(--wall-text); }
 .tile.waiting .tally { background: transparent; border-color: var(--wall-muted); border-style: dashed; }
 .tile.paused .tally { background: transparent; border-color: var(--warn); }
-/* A tela em destaque: moldura e faixa de rótulo acesas. */
-.tile.pinned::after { box-shadow: inset 0 0 0 2px var(--accent); }
-.tile.pinned .umd { background: var(--accent); border-top-color: var(--accent); color: var(--accent-text); }
+/* A tela em destaque: moldura e faixa de rótulo brancas, com o pino. Destacar é uma
+   escolha sua, não "no ar": nada de vermelho. */
+.tile.pinned::after { box-shadow: inset 0 0 0 2px var(--wall-text); }
+.tile.pinned .umd { background: var(--wall-text); border-top-color: var(--wall-text); color: var(--umd); }
 .tile.pinned .tile-name, .tile.pinned .tile-label, .tile.pinned .tile-signal { color: inherit; }
-.tile.pinned .tile-label { opacity: 0.85; }
-.tile.pinned .tally { background: var(--accent-text); border-color: var(--accent-text); }
+.tile.pinned .tally { background: var(--umd); border-color: var(--umd); }
 .tile.pinned.paused .tally, .tile.pinned.waiting .tally { background: transparent; }
+.tile-pin { display: none; flex: none; }
+.tile.pinned .tile-pin { display: inline-grid; }
+.tile-pin svg.i { width: 14px; height: 14px; }
 
 .tile-bar {
   position: absolute; inset: auto 0 0 0; z-index: 2;
@@ -542,8 +598,14 @@ details > summary::-webkit-details-marker { display: none; }
   background: rgba(255, 255, 255, 0.08); box-shadow: none;
 }
 .tile-bar .icon-btn:hover, .tile-bar .icon-btn.active { background: rgba(255, 255, 255, 0.2); }
-.tile-bar .icon-btn[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); }
-.tile-bar input[type="range"] { width: 110px; accent-color: var(--accent); }
+/* Tecla ligada sobre o vídeo (destaque, janelinha): branca, não vermelha. */
+.tile-bar .icon-btn[aria-pressed="true"] { background: #fff; color: #08080a; }
+/* Sobre o vídeo (sempre preto), o fader é claro. */
+.tile-bar input[type="range"] { width: 110px; }
+.tile-bar input[type="range"]::-webkit-slider-runnable-track { background: rgba(255, 255, 255, 0.22); box-shadow: none; }
+.tile-bar input[type="range"]::-webkit-slider-thumb {
+  background: linear-gradient(90deg, transparent 5px, #08080a 5px 7px, transparent 7px), #fff;
+}
 .tile-bar .spacer { flex: 1; }
 .tile-bar :focus-visible { outline-color: #fff; }
 /* Telas estreitas (coluna do destaque, 200 px ou mais): sem janelinha, estatísticas
@@ -588,7 +650,7 @@ details > summary::-webkit-details-marker { display: none; }
 
 .spinner {
   width: 26px; height: 26px; border-radius: 50%;
-  border: 2.5px solid var(--spinner-track); border-top-color: var(--accent-ui);
+  border: 2.5px solid var(--spinner-track); border-top-color: var(--text);
   animation: spin 0.9s linear infinite;
 }
 .spinner.tiny { display: inline-block; width: 12px; height: 12px; border-width: 2px; vertical-align: -1px; }
@@ -655,7 +717,10 @@ details > summary::-webkit-details-marker { display: none; }
 .signal-pill { display: inline-flex; align-items: center; gap: 5px; }
 
 /* ---------- Mesa (coluna da direita) ---------- */
+/* A ordem dos painéis acompanha o momento (ver arrangeConsole no app.js): eles mudam
+   de lugar no HTML, para o Tab seguir a ordem que se vê. */
 .sidebar { min-height: 0; overflow-y: auto; background: var(--panel); border-left: 1px solid var(--border); }
+.panel-foot { padding-block: 12px 14px; border-bottom: 0; }
 .panel { display: flex; flex-direction: column; gap: 12px; padding: 16px 16px 18px; border-bottom: 1px solid var(--border); }
 .panel h3 {
   display: flex; align-items: baseline; gap: 8px; margin: 0;
@@ -676,13 +741,16 @@ details > summary::-webkit-details-marker { display: none; }
 .participant-main { flex: 1; min-width: 0; }
 .participant-name { display: flex; align-items: center; gap: 7px; min-width: 0; font-weight: 600; }
 .participant-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Microfone e câmera ligados: ícones depois do nome. */
-.participant-media { flex: none; display: inline-grid; color: var(--accent-ui); }
+/* Microfone e câmera ligados: ícones depois do nome (os seus acendem: são saídas suas). */
+.participant-media { flex: none; display: inline-grid; color: var(--muted); }
+.participant[data-peer="me"] .participant-media { color: var(--accent-ui); }
 .participant-media svg.i { width: 15px; height: 15px; }
 /* Falando agora: o monograma ganha um contorno verde (a cor de "no ar" é só da transmissão). */
 .avatar { transition: box-shadow 0.12s, border-color 0.12s; }
 .participant.speaking .avatar { border-color: var(--ok); box-shadow: 0 0 0 2px var(--ok); }
-.participant-name .tally { width: 8px; height: 8px; background: var(--accent); border-color: var(--accent); }
+/* Tally ao lado do nome: o dos outros aceso em branco; o seu, na cor de destaque. */
+.participant-name .tally { width: 8px; height: 8px; background: var(--text); border-color: var(--text); }
+.participant[data-peer="me"] .participant-name .tally:not(.paused) { background: var(--accent); border-color: var(--accent); }
 .participant-name .tally.paused { background: transparent; border-color: var(--warn); }
 .participant-sub { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -701,7 +769,7 @@ details > summary::-webkit-details-marker { display: none; }
 }
 .progress { height: 6px; border-radius: 1px; background: var(--input); border: 1px solid var(--border); overflow: hidden; }
 .progress > span {
-  display: block; height: 100%; background: var(--accent-ui);
+  display: block; height: 100%; background: var(--text);
   transform: scaleX(var(--value, 0)); transform-origin: left; transition: transform 0.2s;
 }
 
@@ -736,12 +804,12 @@ details > summary::-webkit-details-marker { display: none; }
   width: 3px; margin-left: -1.5px; border-radius: 1px; background: var(--text); pointer-events: none;
 }
 .sensitivity { gap: 8px; }
-.sensitivity input[type="range"] { width: 100%; margin: 0; accent-color: var(--accent-ui); }
+.sensitivity input[type="range"] { width: 100%; }
 .voice-people { display: flex; flex-direction: column; gap: 6px; }
 .voice-person { display: grid; grid-template-columns: minmax(0, 1fr) minmax(80px, 130px) 4ch auto; align-items: center; gap: 8px; }
 .voice-percent { font: 500 12px/1 var(--label); font-variant-numeric: tabular-nums; color: var(--muted); text-align: right; }
 .voice-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; font-size: 13px; }
-.voice-person input[type="range"] { width: 100%; accent-color: var(--accent-ui); }
+.voice-person input[type="range"] { width: 100%; }
 .share-live-info .tally { background: var(--accent); border-color: var(--accent); }
 .share-live.paused .share-live-info .tally { background: transparent; border-color: var(--warn); }
 #share-source { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--wall-text); }
@@ -753,11 +821,12 @@ details > summary::-webkit-details-marker { display: none; }
 .preview-wrap .reaction { font-size: 26px; }
 
 .share-audio { display: flex; flex-direction: column; gap: 6px; }
-/* Medidor de som em segmentos, como num console de áudio: apagados, eles continuam à vista. */
+/* Medidor de som em segmentos, como num console de áudio: apagados, eles continuam à
+   vista; acesos em verde (som passando), nunca na cor de "no ar". */
 .meter { position: relative; height: 8px; border-radius: 1px; background: var(--meter-off); border: 1px solid var(--border); overflow: hidden; }
 :root[data-mode="light"] .meter { border-color: var(--border-strong); }
 .meter > span {
-  display: block; height: 100%; background: var(--accent-ui);
+  display: block; height: 100%; background: var(--ok);
   transform: scaleX(var(--level, 0)); transform-origin: left; transition: transform 0.08s linear;
 }
 .meter::after {
@@ -765,8 +834,14 @@ details > summary::-webkit-details-marker { display: none; }
   background: repeating-linear-gradient(90deg, transparent 0 5px, var(--panel) 5px 7px);
 }
 .share-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+/* A qualidade: fora do ar, só um resumo (as teclas ficam no seletor de tela); no ar,
+   uma linha que abre as teclas, uma por linha (nome à esquerda, formato à direita). */
+.quality-box { display: flex; flex-direction: column; gap: 12px; }
+.share-quality-slot { margin-top: 12px; }
+.share-quality .presets { grid-template-columns: minmax(0, 1fr); }
+.share-quality .preset { flex-direction: row; align-items: baseline; justify-content: space-between; gap: 12px; min-height: 36px; }
 
-/* Predefinições: teclas de formato; a escolhida acende. */
+/* Predefinições: teclas de formato; a escolhida fica em relevo (ver "Seleção"). */
 .presets { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .preset {
   display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px;
@@ -778,12 +853,8 @@ details > summary::-webkit-details-marker { display: none; }
 .preset:hover { background: var(--raised-hover); }
 .preset-name { font-weight: 600; font-size: 14px; }
 .preset-spec { font: 500 13px/1.2 var(--label); font-stretch: condensed; font-variant-numeric: tabular-nums; color: var(--muted); }
-.preset[aria-pressed="true"] {
-  background: var(--accent); border-color: var(--accent); color: var(--accent-text);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 1px 3px var(--shadow-sm);
-}
-.preset[aria-pressed="true"] .preset-spec { color: inherit; opacity: 0.86; }
 .quality-advanced .quality { margin-top: 12px; }
+.quality-advanced #bitrate-hint { margin-top: 10px; }
 .quality { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .quality .wide { grid-column: 1 / -1; }
 
@@ -794,8 +865,11 @@ details > summary::-webkit-details-marker { display: none; }
 .suggestion p { margin: 0; font-size: 13px; }
 .suggestion-actions { display: flex; gap: 8px; }
 
-.shortcuts-hint { line-height: 1.85; }
-.shortcut { white-space: nowrap; }
+/* Atalhos: recolhidos no pé do painel. */
+.shortcut-list { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px 12px; margin: 0; }
+.shortcut-list div { display: contents; }
+.shortcut-list dt { white-space: nowrap; }
+.shortcut-list dd { margin: 0; font-size: 13px; color: var(--muted); }
 kbd {
   display: inline-block; min-width: 20px; padding: 0 5px; border-radius: 3px;
   border: 1px solid var(--border-strong); border-bottom-width: 2px; background: var(--raised);
@@ -817,8 +891,8 @@ kbd {
 .out-row .out-name .signal-pill.bad { color: var(--danger-text); }
 .out-row .limit { color: var(--warn-text); }
 
-/* ---------- Janelas (escolha da tela, aparência) ---------- */
-dialog.picker, dialog.appearance {
+/* ---------- Janelas (escolha da tela, aparência, confirmação) ---------- */
+dialog.picker, dialog.appearance, dialog.confirm {
   padding: 0; border-radius: 6px; border: 1px solid var(--border-strong);
   background: var(--panel); color: var(--text);
   box-shadow: 0 2px 6px var(--shadow-sm);
@@ -849,6 +923,7 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.62); }
   text-align: left; transition: border-color 0.15s, background-color 0.15s;
 }
 .source-card:hover { border-color: var(--muted); }
+.source-card.selected:hover { border-color: var(--accent-ui); }
 .source-thumb {
   display: grid; place-items: center; aspect-ratio: 16 / 9; overflow: hidden;
   background: #000; color: var(--wall-faint);
@@ -860,8 +935,7 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.62); }
 .source-name img { width: 16px; height: 16px; flex: none; }
 .source-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .source-detail { padding: 1px 10px 9px; font: 500 12.5px/1.3 var(--label); font-variant-numeric: tabular-nums; color: var(--muted); }
-.source-card.selected { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
-.source-card.selected .source-detail { color: inherit; opacity: 0.86; }
+
 .picker-foot { display: flex; flex-direction: column; gap: 12px; padding: 14px 20px; border-top: 1px solid var(--border); }
 .audio-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .audio-row .check { align-items: center; }
@@ -869,8 +943,13 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.62); }
 .audio-row select { width: auto; min-width: 280px; height: 32px; }
 .exclude-editor { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
 .exclude-editor .field { width: 100%; }
+/* A qualidade da transmissão, escolhida junto com a tela. */
+.picker-quality { display: flex; flex-direction: column; gap: 8px; }
+.picker-quality .presets { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.picker-quality .quality { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.picker-quality #bitrate-hint { max-width: 72ch; }
 .picker-actions { display: flex; align-items: center; gap: 10px; }
-.picker-actions .hint { max-width: 560px; }
+.picker-actions .hint { max-width: 68ch; }
 .spacer { flex: 1; }
 
 /* Apps no som: teclas de canal; marcada = acesa, excluída = apagada. */
@@ -882,7 +961,7 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.62); }
   border: 1px solid var(--border-strong); background: var(--raised);
   box-shadow: inset 0 1px 0 var(--key-highlight);
 }
-.pick-list .check:has(input:checked) { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+
 .pick-list .check input { margin: 0; }
 .pick-list .check.disabled { cursor: not-allowed; opacity: 0.55; box-shadow: none; }
 .pick-list .check em { font-style: normal; color: var(--muted); }
@@ -917,24 +996,50 @@ dialog.appearance { width: min(540px, calc(100vw - 48px)); }
 .custom-color span { font-weight: 600; }
 .custom-color code { font: 12.5px var(--mono); color: var(--muted); }
 .appearance-foot { display: flex; align-items: center; gap: 10px; padding: 12px 16px 12px 20px; border-top: 1px solid var(--border); }
+.accent-warning { color: var(--warn-text); }
+
+dialog.confirm { width: min(440px, calc(100vw - 48px)); }
+.confirm-body { display: flex; flex-direction: column; gap: 8px; padding: 18px 20px 16px; }
+.confirm-body h2 { margin: 0; font: 600 18px/1.3 var(--label); }
+.confirm-body p { margin: 0; color: var(--muted); }
 
 /* ---------- Avisos ---------- */
+/* No alto, à direita do palco (ao lado do painel): não cobrem o painel, os controles
+   de baixo das telas nem o título da primeira tela. No máximo três; cada um fecha no ×. */
+body:has(#join-view:not([hidden])) { --side-w: 420px; }
+body:has(#room-view:not([hidden]):not(.console-hidden)) { --side-w: 352px; }
+@media (max-width: 1100px) {
+  body:has(#room-view:not([hidden]):not(.console-hidden)) { --side-w: 300px; }
+}
 .toasts {
-  position: fixed; right: 16px; bottom: 16px; z-index: 10;
+  position: fixed; right: calc(var(--side-w, 0px) + 16px); top: 64px; z-index: 10;
   display: flex; flex-direction: column; align-items: flex-end; gap: 8px; pointer-events: none;
 }
 .toast {
-  display: flex; align-items: baseline; gap: 10px;
-  max-width: 380px; padding: 10px 14px 10px 12px; border-radius: 4px;
+  display: flex; align-items: flex-start; gap: 10px;
+  max-width: 380px; padding: 8px 6px 8px 12px; border-radius: 4px;
   background: var(--raised); border: 1px solid var(--border-strong);
   box-shadow: 0 2px 6px var(--shadow-sm);
   pointer-events: auto; animation: toast-in 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
-.toast::before { content: ''; flex: none; width: 7px; height: 7px; border-radius: 1px; background: var(--accent-ui); transform: translateY(-1px); }
+.toast::before { content: ''; flex: none; width: 7px; height: 7px; margin-top: 7px; border-radius: 1px; background: var(--muted); }
+.toast-text { flex: 1; min-width: 0; padding-block: 1px; }
+.toast-close {
+  flex: none; display: inline-grid; place-items: center; width: 24px; height: 24px; padding: 0;
+  border: 0; border-radius: 3px; background: transparent; color: var(--muted);
+}
+.toast-close:hover { background: var(--raised-hover); color: var(--text); }
+.toast-close svg.i { width: 14px; height: 14px; }
 .toast.warn::before { background: var(--warn); }
 .toast.error { border-color: var(--danger-border); }
 .toast.error::before { background: var(--danger); }
-@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } }
+@keyframes toast-in { from { opacity: 0; transform: translateY(-8px); } }
+
+/* Só para leitores de tela (o aviso de "no ar" e "pausado"). */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition: none !important; }

@@ -133,7 +133,48 @@ function createWindow() {
   });
   mainWindow.on('focus', () => mainWindow.flashFrame(false));
   mainWindow.on('closed', () => { mainWindow = null; });
+  // Dentro de uma sala, o X esconde o Telão na bandeja (como o Discord): a
+  // transmissão, a voz e a sala continuam. Fora da sala, o X fecha o app.
+  mainWindow.on('close', (event) => {
+    if (appQuitting || !liveStatus.inRoom) return;
+    event.preventDefault();
+    mainWindow.hide();
+    showTrayHint();
+  });
+  // Desligar, reiniciar ou sair do Windows: deixa fechar.
+  mainWindow.on('query-session-end', () => { appQuitting = true; });
+  mainWindow.on('session-end', () => { appQuitting = true; });
 }
+
+let appQuitting = false; // fechando de verdade: Sair do Telão, atualização, Windows desligando
+
+/** Na primeira vez que o X esconde o Telão, um balão diz onde ele ficou. */
+function showTrayHint() {
+  const file = path.join(app.getPath('userData'), 'tray-hint.json');
+  if (!tray || fs.existsSync(file)) return;
+  try { fs.writeFileSync(file, '{"shown":true}'); } catch { /* sem disco: avisa de novo na próxima vez */ }
+  tray.displayBalloon({
+    iconType: 'info',
+    title: 'O Telão continua aberto',
+    content: 'Você continua na sala. Clique no ícone perto do relógio para voltar; para fechar de vez, use "Sair do Telão" no menu dele.',
+  });
+}
+
+/**
+ * "Sair do Telão" na bandeja. No ar, ou hospedando com gente na sala, a janela
+ * aparece e pergunta antes (ver confirmQuit no app.js); senão, fecha na hora.
+ */
+function requestQuit() {
+  const { sharing, hostingOthers } = liveStatus;
+  if (mainWindow && !mainWindow.isDestroyed() && (sharing || hostingOthers)) {
+    showWindow();
+    mainWindow.webContents.send('command', 'quit-request');
+    return;
+  }
+  app.quit();
+}
+
+ipcMain.handle('app:quit', () => { app.quit(); });
 
 function showWindow() {
   if (!mainWindow) return;
@@ -184,9 +225,12 @@ ipcMain.handle('invite:pending', () => {
 // ---------- Bandeja, selo "ao vivo" na barra de tarefas e atalhos globais ----------
 
 let tray = null;
-let liveStatus = { inRoom: false, sharing: false, paused: false, mic: false };
+let liveStatus = { inRoom: false, sharing: false, paused: false, mic: false, deafened: false, hostingOthers: false };
 // Atalhos que valem até com o jogo em primeiro plano (só enquanto está numa sala).
-const SHORTCUTS = { 'Control+Alt+P': 'pause-toggle', 'Control+Alt+T': 'share-toggle', 'Control+Alt+M': 'mic-toggle' };
+const SHORTCUTS = {
+  'Control+Alt+P': 'pause-toggle', 'Control+Alt+T': 'share-toggle',
+  'Control+Alt+M': 'mic-toggle', 'Control+Alt+D': 'deafen-toggle',
+};
 let shortcutsOn = false;
 
 async function sendCommand(command) {
@@ -199,13 +243,24 @@ async function sendCommand(command) {
 }
 
 function updateTray() {
-  const { inRoom, sharing, paused, mic } = liveStatus;
+  const { inRoom, sharing, paused, mic, deafened } = liveStatus;
   if (tray) {
     tray.setImage(path.join(ASSETS, sharing ? 'tray-live.png' : 'tray.png'));
-    tray.setToolTip(sharing ? (paused ? 'Telão: transmissão pausada' : 'Telão: no ar') : 'Telão');
+    // Com o jogo na frente, a dica da bandeja diz o que está ligado.
+    const notes = [];
+    if (sharing) notes.push(paused ? 'transmissão pausada' : 'no ar');
+    if (inRoom && mic) notes.push('microfone ligado');
+    if (inRoom && deafened) notes.push('vozes silenciadas');
+    tray.setToolTip(notes.length ? `Telão: ${notes.join(' · ')}` : 'Telão');
     const items = [{ label: 'Abrir o Telão', click: showWindow }];
     if (updateState.status === 'ready') {
       items.push({ label: `Reiniciar e atualizar para a ${updateState.version}`, click: installUpdate });
+    }
+    if (inRoom && !sharing) {
+      items.push(
+        { type: 'separator' },
+        { label: 'Começar a transmitir', accelerator: 'Ctrl+Alt+T', click: () => sendCommand('share-toggle') },
+      );
     }
     if (sharing) {
       items.push(
@@ -218,9 +273,10 @@ function updateTray() {
       items.push(
         { type: 'separator' },
         { label: mic ? 'Desligar o microfone' : 'Ligar o microfone', accelerator: 'Ctrl+Alt+M', click: () => sendCommand('mic-toggle') },
+        { label: deafened ? 'Voltar a ouvir as vozes' : 'Silenciar vozes', accelerator: 'Ctrl+Alt+D', click: () => sendCommand('deafen-toggle') },
       );
     }
-    items.push({ type: 'separator' }, { label: 'Sair do Telão', click: () => app.quit() });
+    items.push({ type: 'separator' }, { label: 'Sair do Telão', click: requestQuit });
     tray.setContextMenu(Menu.buildFromTemplate(items));
   }
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -251,7 +307,10 @@ function setShortcuts(on) {
 }
 
 ipcMain.handle('status:set', (_event, status = {}) => {
-  liveStatus = { inRoom: status.inRoom === true, sharing: status.sharing === true, paused: status.paused === true, mic: status.mic === true };
+  liveStatus = {
+    inRoom: status.inRoom === true, sharing: status.sharing === true, paused: status.paused === true,
+    mic: status.mic === true, deafened: status.deafened === true, hostingOthers: status.hostingOthers === true,
+  };
   updateTray();
   return setShortcuts(liveStatus.inRoom);
 });
@@ -547,6 +606,7 @@ app.on('will-quit', () => {
 
 let quitting = false;
 app.on('before-quit', (event) => {
+  appQuitting = true; // o X deixa de esconder na bandeja: agora fecha
   if (quitting || !hosted) return;
   event.preventDefault();
   quitting = true;

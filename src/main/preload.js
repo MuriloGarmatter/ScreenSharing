@@ -34,4 +34,5 @@ contextBridge.exposeInMainWorld('telao', {
   getUpdateStatus: () => ipcRenderer.invoke('update:status'),
   onUpdateStatus: (callback) => ipcRenderer.on('update:status', (_event, status) => callback(status)),
   installUpdate: () => ipcRenderer.invoke('update:install'),
+  quitApp: () => ipcRenderer.invoke('app:quit'),
 });

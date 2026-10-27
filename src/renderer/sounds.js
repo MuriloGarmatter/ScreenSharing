@@ -9,6 +9,9 @@ const TONES = {
   join: [[587, 0], [784, 0.08]], // alguém entrou
   'mic-on': [[494, 0], [740, 0.07]], // microfone ligado (sobe)
   'mic-off': [[740, 0], [494, 0.07]], // microfone desligado (desce)
+  'deafen-on': [[392, 0], [262, 0.08]], // vozes silenciadas (desce, mais grave)
+  'deafen-off': [[262, 0], [392, 0.08]], // voltou a ouvir (sobe, mais grave)
+  error: [[311, 0], [311, 0.14]], // não deu (dois toques graves)
 };
 
 let context = null;

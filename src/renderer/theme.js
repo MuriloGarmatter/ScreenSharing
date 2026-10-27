@@ -9,16 +9,15 @@
   // A cor de destaque é a luz de "no ar" da mesa de corte; o padrão é o vermelho de tally.
   const DEFAULT_APPEARANCE = { theme: 'dark', accent: '#d92b26' };
   const THEMES = ['dark', 'light', 'system'];
+  // Só cores que não se confundem com as luzes de estado: verde (conectado, falando),
+  // âmbar (pausado) e cinza (apagado) ficam de fora (ver accentConflict).
   const PRESETS = [
     { name: 'Vermelho', color: '#d92b26' },
     { name: 'Laranja', color: '#c2410c' },
-    { name: 'Amarelo', color: '#eab308' },
-    { name: 'Verde', color: '#15803d' },
     { name: 'Ciano', color: '#0e7490' },
     { name: 'Azul', color: '#2563eb' },
     { name: 'Roxo', color: '#7c3aed' },
     { name: 'Rosa', color: '#db2777' },
-    { name: 'Grafite', color: '#5b6270' },
   ];
   // Superfícies de cada modo; precisam bater com --panel, --bg e --bg-sunken do styles.css.
   const SURFACES = {
@@ -122,6 +121,42 @@
     return { r: hue(h + 1 / 3) * 255, g: hue(h) * 255, b: hue(h - 1 / 3) * 255 };
   }
 
+  /** Matiz (0 a 360) e saturação (0 a 1) da cor, como no HSL. */
+  function hueSat(color) {
+    const r = color.r / 255;
+    const g = color.g / 255;
+    const b = color.b / 255;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const d = max - min;
+    if (d === 0) return { h: 0, s: 0 };
+    const l = (max + min) / 2;
+    const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    let h;
+    if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) * 60;
+    else if (max === g) h = ((b - r) / d + 2) * 60;
+    else h = ((r - g) / d + 4) * 60;
+    return { h, s };
+  }
+
+  /**
+   * A cor de destaque é a luz de "no ar" e não pode se confundir com as luzes de
+   * estado. Devolve 'green' (conectado, falando), 'amber' (pausado), 'gray' (parece
+   * apagada), 'danger' (o vermelho de erro) ou null. Dá para usar mesmo assim; a
+   * tela de Ajustes só avisa.
+   */
+  function accentConflict(accentHex) {
+    const color = parseHex(accentHex);
+    if (!color) return null;
+    const { h, s } = hueSat(color);
+    if (s < 0.25) return 'gray';
+    if (h >= 75 && h <= 170) return 'green';
+    if (h >= 30 && h < 75) return 'amber';
+    // O vermelho de erro é carmim (por volta de 345 graus); o de "no ar", escarlate.
+    if (h >= 336 && h <= 358 && s >= 0.45) return 'danger';
+    return null;
+  }
+
   function normalize(appearance) {
     const theme = THEMES.includes(appearance && appearance.theme) ? appearance.theme : DEFAULT_APPEARANCE.theme;
     const parsed = parseHex(appearance && appearance.accent);
@@ -182,7 +217,7 @@
 
   globalThis.TelaoTheme = {
     PREFS_KEY, DEFAULT_APPEARANCE, PRESETS, SURFACES, UI_REFERENCE,
-    parseHex, toHex, luminance, contrast, readableOn, ensureContrast, rotateHue,
+    parseHex, toHex, luminance, contrast, readableOn, ensureContrast, rotateHue, accentConflict,
     normalize, effectiveMode, accentVars, apply, load,
   };
 

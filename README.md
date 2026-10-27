@@ -262,7 +262,9 @@ leva o nome da sala, com um botão de copiar ao lado.
   - Placas de máquinas virtuais (VirtualBox, VMware, WSL, "vEthernet") não servem.
 
 > **Se você sair da sala ou fechar o Telão, a sala acaba** para todo mundo. Ao clicar em **Sair**
-> com gente na sala, o app pede confirmação. Fechar a janela encerra direto.
+> com gente na sala, o app pede confirmação. O X da janela não fecha o Telão enquanto você está
+> numa sala: ele vai para a bandeja (perto do relógio). Para fechar de vez, use **Sair do Telão** no
+> ícone de lá, que também pergunta antes quando você está no ar ou hospedando.
 
 ### 2. Entrar numa sala (os amigos)
 
@@ -275,35 +277,42 @@ Há três jeitos. Use o primeiro que funcionar:
 2. **Copiar o link e abrir o Telão.** Na tela inicial aparece "**Você copiou um convite**" com o nome
    da sala. Clique em **Entrar**.
 3. **Colar à mão:** escolha **Entrar com convite**, cole o link no campo **Convite** (o campo **Sala**
-   se preenche sozinho), digite a senha (se houver) e clique em **Entrar na sala**.
+   se preenche sozinho) e clique em **Entrar na sala**. Se a sala tiver senha, o campo **Senha**
+   aparece: digite a que quem criou a sala passou.
 
 O app lembra seu nome, a sala e o convite para a próxima vez. As senhas ele não guarda.
+
+Se você for o primeiro a chegar, o meio do Telão avisa "**Você é o primeiro aqui**", com o convite e
+a tecla **Copiar convite**. Se a turma já devia estar lá, confira se o convite é o mesmo: um nome de
+sala diferente é outra sala, vazia.
 
 Dentro da sala, a lista **Na sala** mostra quem está lá e como está a conexão com cada um:
 
 | Etiqueta | Significado |
 |---|---|
 | `conectando…` | Os dois computadores ainda estão se encontrando (normalmente leva 1 a 3 segundos). |
-| `sinal ótimo` | Conexão direta e boa. Passe o mouse para ver se é pela rede local ou pela internet e o atraso em milissegundos. |
+| só as barrinhas | Sinal ótimo: conexão direta e boa. Passe o mouse para ver se é pela rede local ou pela internet e o atraso em milissegundos. |
 | `sinal bom` | Funciona, mas com um pouco de atraso ou perda. A qualidade pode cair em alguns momentos. |
 | `sinal ruim` | Conexão fraca: a imagem pode travar. Veja [A imagem trava](#a-imagem-trava-fica-pixelada-ou-atrasada). |
 | (no mouse) `retransmitida por um servidor TURN` | A conexão passa por um servidor intermediário (só existe se alguém configurou um). |
 | `falhou` | Não deu para conectar com essa pessoa. Veja [Problemas comuns](#participante-fica-em-conectando-ou-falhou). |
-| `NO AR` / `PAUSADO` | É você, transmitindo (ou com a transmissão pausada). Quem está transmitindo tem um quadradinho aceso ao lado do nome. |
+| quadradinho ao lado do nome | A pessoa está transmitindo (com contorno âmbar: pausada). O seu acende na cor de destaque; o dos outros, em branco. |
 
 ### 3. Transmitir a sua tela
 
-1. Clique em **Compartilhar tela** (o botão colorido no alto) ou aperte `Ctrl+Alt+T`.
+1. Clique em **Compartilhar tela** (a tecla em destaque no alto, à direita) ou aperte `Ctrl+Alt+T`.
 2. Escolha o que transmitir:
    - **Telas inteiras:** tudo o que aparece no monitor. Se você tem dois monitores, aparecem os dois,
      e o principal vem marcado como "principal".
    - **Janelas:** só uma janela, como o jogo, o navegador ou o player de vídeo. O resto da sua tela
      fica escondido.
-   - Se a janela que você quer não aparecer, clique em **Atualizar**.
+   - Se a janela que você quer não aparecer, clique em **Recarregar**.
 3. **Som:** deixe **Transmitir som** marcado. O menu ao lado já vem na opção certa ("Todos os apps,
    menos os excluídos" para tela inteira; "Só o app desta janela" para janela). Só mexa se precisar;
    os detalhes estão em [Som](#-som-como-o-discord-fica-de-fora).
-4. Clique em **Transmitir** (ou dê dois cliques na tela ou janela escolhida).
+4. **Qualidade:** **Jogo** · **Filme** · **Texto** · **Internet fraca** (a tecla escolhida fica acesa).
+   Os **Ajustes finos** ficam logo abaixo ([explicação](#-qualidade-fps-e-internet)).
+5. Clique em **Transmitir** (ou dê dois cliques na tela ou janela escolhida).
 
 No painel **Sua transmissão** (à direita) você encontra:
 
@@ -313,10 +322,12 @@ No painel **Sua transmissão** (à direita) você encontra:
 - **Pausar / Retomar** (ou `Ctrl+Alt+P`): os outros veem uma tela preta e ouvem silêncio, com o aviso
   "pausou a transmissão". Use quando aparecer uma senha, notificação ou mensagem privada.
 - **Trocar tela:** muda o que está sendo transmitido, sem parar.
-- **NO AR:** enquanto você transmite, a lâmpada **NO AR** fica acesa no alto, com o tempo no ar ao lado.
+- **NO AR:** enquanto você transmite, a lâmpada **NO AR** fica acesa no alto, com o tempo no ar ao
+  lado. Ela também é uma tecla: clicar nela pausa e retoma.
 - **Parar** (ou **Parar transmissão** no alto, ou `Ctrl+Alt+T` de novo): encerra a sua transmissão.
-- **Qualidade em um clique:** **Jogo** · **Filme** · **Texto** · **Internet fraca** (a tecla escolhida fica acesa). Os
-  **Ajustes finos** ficam logo abaixo ([explicação](#-qualidade-fps-e-internet)).
+- **Qualidade:** uma linha ("Qualidade: Filme · 1080p · 30 fps"). Clique nela para abrir as mesmas
+  teclas da janela de escolher a tela e mudar sem parar a transmissão.
+  Os **Ajustes finos** ficam logo abaixo ([explicação](#-qualidade-fps-e-internet)).
 - **Enviando para cada pessoa:** a resolução, o FPS, a velocidade e o sinal de cada amigo.
 
 Se a sua internet ou o seu processador não estiverem dando conta por alguns segundos, aparece uma
@@ -346,9 +357,14 @@ uns 2 segundos (o cursor some junto) e a imagem fica limpa:
 | ⛶ | Tela cheia. **Dois cliques** na imagem também abrem e fecham a tela cheia. `Esc` sai. |
 | 😂 🔥 👏 😮 ❤️ 👍 | **Reações:** aparecem flutuando para todo mundo, inclusive para quem está transmitindo. |
 
-No canto de cada tela aparece o **sinal** da transmissão que chega até você (ótimo, bom ou ruim).
+No canto de cada tela aparecem as barrinhas de **sinal** da transmissão que chega até você. Quando o
+sinal não está ótimo, aparece também o texto ("sinal bom" ou "sinal ruim"). A tela em destaque fica
+com a moldura e a faixa de baixo brancas, com um 📌.
 
-Quer as telas maiores? O botão de **painel** no alto (ao lado do sininho) esconde a coluna da direita e o multivisor fica com a janela toda. Clique de novo para trazer o painel de volta; o Telão lembra a sua escolha.
+**Pelo teclado:** o `Tab` para uma vez em cada tela; `Enter` abre os controles dela e `Esc` volta.
+`F6` pula entre a barra do alto, as telas e o painel da direita.
+
+Quer as telas maiores? O botão de **painel** no alto (ao lado de **Ajustes**) esconde a coluna da direita e o multivisor fica com a janela toda. Clique de novo para trazer o painel de volta; o Telão lembra a sua escolha.
 
 Para pesar menos no PC, o Telão também se ajusta sozinho:
 
@@ -368,7 +384,7 @@ aparece o painel **Sua câmera**, com a sua imagem (espelhada só para você) e 
 câmera**. Se o PC tiver mais de uma câmera, escolha qual em **Qual câmera**.
 
 - A câmera é **independente da tela**: dá para ligar só a câmera, só a tela, ou as duas.
-- Ela vai **sem som**. Para conversar, continuem no Discord.
+- Ela vai **sem som**: para conversar, ligue o microfone (veja [Conversar por voz](#6-conversar-por-voz)).
 - Para os outros, a câmera aparece como mais uma tela, com o rótulo **câmera**. Quando há telas no ar,
   as câmeras ficam pequenas na fileira de baixo; dá para destacar uma câmera ou parar de assisti-la
   como qualquer tela. Na lista **Na sala**, quem está com a câmera ligada tem um 🎥 ao lado do nome.
@@ -380,12 +396,12 @@ câmera**. Se o PC tiver mais de uma câmera, escolha qual em **Qual câmera**.
 
 ### 6. Conversar por voz
 
-No painel **Voz** (na coluna da direita), clique em **Microfone desligado** para ligar, ou use o
+No painel **Voz** (na coluna da direita), clique em **Microfone** para ligar, ou use o
 botão 🎤 no alto da sala ou `Ctrl+Alt+M`. O botão acende em vermelho enquanto o microfone está
 ligado, e um somzinho confirma (útil com o jogo na frente).
 
 - **Na primeira vez, o microfone começa desligado.** Depois, o Telão lembra: se você saiu com ele
-  ligado, ele liga sozinho ao entrar na próxima sala.
+  ligado, ele liga sozinho ao entrar na próxima sala, com um aviso e um somzinho.
 - **Desligado é desligado mesmo:** o Telão solta o microfone, e o Windows deixa de mostrar que ele
   está em uso.
 - Na lista **Na sala**, quem está com o microfone ligado tem um 🎤 ao lado do nome, e quem está
@@ -393,8 +409,10 @@ ligado, e um somzinho confirma (útil com o jogo na frente).
 - **Volume de cada voz:** no painel **Voz** aparece cada pessoa com o microfone ligado, com o volume
   (de 0 a **200%**, para quem fala baixo; clique duplo na barra volta para 100%) e um botão para
   silenciar só ela. Fica lembrado pelo nome, separado do volume da transmissão dela.
-- **Silenciar vozes** 🎧: você para de ouvir todo mundo, e o seu microfone desliga junto, como no
-  Discord. Clique de novo para voltar; o microfone volta como estava.
+- **Silenciar vozes** 🎧 (ou `Ctrl+Alt+D`): você para de ouvir todo mundo, e o seu microfone desliga
+  junto, como no Discord. Clique de novo para voltar; o microfone volta como estava.
+- **Se o microfone ou a câmera pararem** (desconectados, ou outro programa pegou), o Telão avisa com
+  um som e uma notificação, para você saber mesmo com o jogo na frente.
 - **Ajustes do microfone** (no painel **Voz**, como no Discord):
   - **Qual microfone**, se o PC tiver mais de um.
   - **Sensibilidade:** abaixo do limite vai silêncio, e o barulho de fundo não chega aos outros. Na
@@ -416,14 +434,25 @@ ligado, e um somzinho confirma (útil com o jogo na frente).
 
 ### 7. Avisos, bandeja e cores
 
-- **Sons de aviso:** o sininho 🔔 no alto liga e desliga os sons (alguém começou a transmitir, você
-  começou, pausou ou parou).
-- **Bandeja (perto do relógio):** o Telão fica com um ícone lá. Com transmissão no ar, o ícone ganha
-  uma **bolinha vermelha**, e o ícone na barra de tarefas também. Clique com o botão direito para
-  **Pausar**, **Parar** ou **Sair** sem precisar abrir a janela.
-- **Cores:** clique no botão de **paleta** 🎨 (na tela inicial e no alto da sala). Escolha o **tema**
-  (Escuro, Claro ou Igual ao Windows) e a **cor de destaque** (9 cores prontas ou **Outra cor…**). Ela é a "luz de no ar" do app: as teclas acesas, quem está transmitindo e a tela em destaque.
-  O app ajusta a cor do texto dos botões sozinho para continuar legível. **Restaurar o padrão** volta
+- **Ajustes:** o botão de controles deslizantes (na tela inicial e no alto da sala) abre os sons, o
+  tema e a cor de destaque.
+- **Sons de aviso:** em **Ajustes**, liga e desliga os sons (alguém começou a transmitir, você
+  começou, pausou ou parou). Os atalhos de teclado tocam o somzinho deles sempre.
+- **Avisos:** aparecem no alto, à direita das telas, no máximo três de cada vez. O × fecha.
+- **Bandeja (perto do relógio):** o Telão fica com um ícone lá. Com transmissão no ar, a faixa do
+  ícone acende em vermelho, e o ícone na barra de tarefas ganha uma lâmpada. Passe o mouse no ícone
+  para ver o que está ligado (no ar, microfone, vozes silenciadas). Clique com o botão direito para
+  **Começar a transmitir**, **Pausar**, **Parar**, ligar ou desligar o **microfone**, **Silenciar
+  vozes** ou **Sair do Telão** sem precisar abrir a janela. Numa sala, o X da janela esconde o
+  Telão aqui em vez de fechar (na primeira vez, um balão avisa).
+- **Cores:** em **Ajustes**, escolha o **tema** (Escuro, Claro ou Igual ao Windows) e a **cor de
+  destaque** (6 cores prontas ou **Outra cor…**). Ela é a "luz de no ar" do app e acende só no que é
+  seu e está no ar: a lâmpada **NO AR**, o seu quadradinho na lista, o microfone e a câmera ligados.
+  As teclas principais (Compartilhar tela, Entrar na sala, Transmitir) são claras, e o que você
+  escolhe (formato, tela, Entrar/Criar) ganha só uma borda na cor de destaque.
+  Verde, amarelo, cinza e tons do vermelho de erro não estão entre as prontas porque se confundem com
+  as luzes de estado (conectado, pausado, apagado, erro). Dá para escolher em **Outra cor…**, e o app
+  avisa. O app ajusta a cor do texto sozinho para continuar legível. **Restaurar tema e cor** volta
   para tema escuro com vermelho.
 
 ---
@@ -434,12 +463,14 @@ Funcionam **até com o jogo em primeiro plano**, enquanto você está numa sala:
 
 | Atalho | O que faz |
 |---|---|
-| `Ctrl+Alt+T` | **Começa** a transmitir (com a mesma tela ou janela e o mesmo som da última vez) ou **para**. Se a janela da última vez não existir mais, o Telão aparece com a lista para escolher. |
+| `Ctrl+Alt+T` | **Começa** a transmitir (com a mesma tela ou janela e o mesmo som da última vez) ou **para**. Se a janela foi fechada e aberta de novo, o Telão acha pelo nome; na primeira vez, vai a tela principal. Se a janela não estiver aberta, toca um som de erro e a lista fica pronta no Telão, sem aparecer por cima do jogo. |
 | `Ctrl+Alt+P` | **Pausa** ou **retoma** a transmissão. |
 | `Ctrl+Alt+M` | **Liga** ou **desliga** o seu microfone. |
+| `Ctrl+Alt+D` | **Silencia as vozes** (ou volta a ouvir). |
 
-Cada um toca um somzinho diferente, então dá para saber que funcionou sem sair do jogo. Se outro
-programa já usar uma dessas combinações, o Telão avisa na hora de entrar na sala.
+Cada um toca um somzinho diferente (mesmo com os sons de aviso desligados), então dá para saber que
+funcionou sem sair do jogo. Se outro programa já usar uma dessas combinações, o Telão avisa na hora de
+entrar na sala. Na sala, a lista fica em **Atalhos do teclado**, no pé do painel da direita.
 
 ---
 
@@ -494,7 +525,8 @@ Durante a transmissão, olhe o painel **Sua transmissão**:
 
 ## 🎬 Qualidade, FPS e internet
 
-O jeito mais fácil é usar os botões de **qualidade em um clique** no painel **Sua transmissão**:
+O jeito mais fácil é usar os botões de **qualidade em um clique**, na janela de escolher a tela (e,
+enquanto você transmite, em **Qualidade**, no painel **Sua transmissão**):
 
 | Botão | Resolução | FPS | Otimizar para | Bitrate | Para quê |
 |---|---|---|---|---|---|
@@ -632,9 +664,10 @@ O Windows passa a bloquear o Telão e não pergunta mais. Quem entra pela mesma 
 
 Quem entra pelo link da internet não depende disso.
 
-### "Senha do servidor incorreta" / "A sala está cheia"
+### "Essa sala pede senha" / "Senha incorreta" / "A sala está cheia"
 
-- A senha diferencia maiúsculas de minúsculas. Peça de novo para quem hospeda.
+- Só salas criadas em **Este computador** podem ter senha. O campo **Senha** aparece quando a sala
+  pede. A senha diferencia maiúsculas de minúsculas: peça de novo para quem hospeda.
 - Cada sala aceita até **10 pessoas**.
 
 ### Participante fica em "conectando…" ou "falhou"
@@ -693,7 +726,7 @@ A janelinha fica por cima de programas em janela e em **Janela sem bordas** (Bor
 - A notificação só aparece com o Telão **em segundo plano**. Com ele na frente, aparece o aviso dentro do app.
 - Confira se o **Não perturbe** / **Assistente de foco** do Windows não está ligado, e se as
   notificações do Telão estão permitidas em **Configurações → Sistema → Notificações**.
-- O som de aviso depende do sininho 🔔 no alto da sala.
+- Os sons de aviso ficam em **Ajustes** (o botão de controles deslizantes no alto da sala).
 
 ### Não está indo som
 
@@ -705,7 +738,7 @@ A janelinha fica por cima de programas em janela e em **Janela sem bordas** (Bor
 - Em **Só o app desta janela**, só vai o som **daquele** programa. Se a música toca em outro programa,
   use **Todos os apps, menos os excluídos** ou **Só os apps que eu escolher**.
 - Em **Só os apps que eu escolher**, confira se o app está **marcado** na lista. Se ele não aparece,
-  dê play em algum som nele e clique em **Atualizar**.
+  dê play em algum som nele e clique em **Recarregar**.
 - Se apareceu "**A captura de som dos apps parou inesperadamente**", "**Falha ao iniciar a captura de
   som**" ou "**Não foi possível capturar o som dos apps (…). Transmitindo só a imagem**", ou se aparece
   "sem som" ao lado do nome da tela: clique em **Trocar tela** e escolha a mesma tela de novo. Isso

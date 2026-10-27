@@ -302,6 +302,7 @@ export class Mesh extends EventTarget {
         } else if (msg.type === 'error') {
           const err = new Error(msg.message || 'O servidor recusou a entrada.');
           err.fatal = true;
+          err.code = typeof msg.code === 'string' ? msg.code : ''; // ex.: 'bad-password'
           finish(err);
         } else {
           this.#onMessage(msg);

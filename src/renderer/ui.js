@@ -36,6 +36,7 @@ const PATHS = {
   download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>',
   globe: '<circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
   wifi: '<path d="M5 12.6a10 10 0 0 1 14 0M8.5 16.1a5 5 0 0 1 7 0M2 8.8a15 15 0 0 1 20 0"/><path d="M12 20h.01"/>',
+  sliders: '<path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3"/><path d="M14 2v4M8 10v4M16 18v4"/>',
   palette: '<path d="M12 2a10 10 0 0 0 0 20c1 0 1.7-.8 1.7-1.7 0-.4-.2-.8-.4-1.1-.3-.3-.5-.7-.5-1.1 0-.9.8-1.7 1.7-1.7h2c3 0 5.5-2.5 5.5-5.5C22 6 17.5 2 12 2z"/><circle cx="7.5" cy="10.5" r="1.2" fill="currentColor" stroke="none"/><circle cx="11" cy="6.5" r="1.2" fill="currentColor" stroke="none"/><circle cx="16" cy="7.5" r="1.2" fill="currentColor" stroke="none"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
   link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
@@ -77,10 +78,17 @@ export function hydrateIcons(root = document) {
   }
 }
 
+const MAX_TOASTS = 3;
+
+/** Aviso passageiro. Cada um fecha no ×; com mais de três, o mais antigo sai. */
 export function toast(message, kind = 'info', timeout = 5000) {
   const box = document.getElementById('toasts');
-  const node = el('div', { class: `toast ${kind}`, role: kind === 'error' ? 'alert' : 'status' }, message);
+  const close = el('button', { type: 'button', class: 'toast-close', title: 'Fechar', 'aria-label': 'Fechar aviso', html: icon('x') });
+  const node = el('div', { class: `toast ${kind}`, role: kind === 'error' ? 'alert' : 'status' },
+    el('span', { class: 'toast-text' }, message), close);
+  close.addEventListener('click', () => node.remove());
   box.append(node);
+  while (box.children.length > MAX_TOASTS) box.firstElementChild.remove();
   setTimeout(() => node.remove(), timeout);
 }
 

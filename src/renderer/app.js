@@ -71,6 +71,9 @@ const state = {
   capWarned: false, // aviso de "30 fps sem placa de vídeo" já mostrado nesta transmissão
   update: null, // { status, version, percent, portable } vindo do processo principal
   updateDismissed: '', // a versão cuja faixa na sala foi dispensada ("Agora não")
+  joinedAs: 'join', // como entrei na sala atual: 'host' (criei) ou 'join' (convite)
+  passwordFor: '', // o servidor que pediu senha: só para ele o campo Senha aparece
+  airState: 'off', // 'off' | 'live' | 'paused': o leitor de tela é avisado quando muda
 };
 
 const prefs = loadPrefs();
@@ -173,6 +176,7 @@ function syncModeFields() {
   const field = $('#room-field');
   if (host) $('#host-fields').prepend(field);
   else $('#join-fields').insertBefore(field, $('#server-password-field'));
+  syncJoinFields();
   $('#room-random').hidden = !host;
   $('#mode-desc').textContent = host ? 'Você cria a sala e convida os amigos.' : 'Alguém criou a sala e te mandou o link.';
   $('#room-label').textContent = host ? 'Nome da sala' : 'Sala';
@@ -180,6 +184,17 @@ function syncModeFields() {
   $('#join-btn').textContent = host ? 'Criar sala e entrar' : 'Entrar na sala';
   if (host && !$('#room').value.trim()) $('#room').value = randomRoom();
   updateSlate();
+}
+
+/**
+ * Entrar com convite: só o campo Convite. O campo Sala aparece só se o convite não
+ * trouxer a sala, e o Senha só quando o servidor desse convite pediu senha.
+ */
+function syncJoinFields() {
+  const host = currentMode() === 'host';
+  const address = host ? null : parseServerAddress($('#server-url').value);
+  $('#room-field').hidden = !host && !(address && !address.room);
+  $('#server-password-field').hidden = host || !address || address.url !== state.passwordFor;
 }
 
 /** A ficha da tela inicial: o que vai acontecer ao entrar (sala, nome, conexão). */
@@ -214,6 +229,20 @@ function showJoinError(message, focusSelector) {
   box.textContent = message;
   box.hidden = false;
   if (focusSelector) $(focusSelector).focus();
+}
+
+/** Não deu para entrar: o motivo fica na tela (e, se a sala pede senha, o campo aparece). */
+function showJoinFailure(err, address) {
+  if (err?.code !== 'bad-password' || !address) {
+    showJoinError(cleanError(err));
+    return;
+  }
+  const typed = Boolean($('#server-password').value);
+  state.passwordFor = address.url;
+  syncJoinFields();
+  showJoinError(typed
+    ? 'Senha incorreta. Confira com quem criou a sala (maiúsculas e minúsculas contam).'
+    : 'Essa sala pede senha. Digite a senha que quem criou a sala passou.', '#server-password');
 }
 
 function setJoinBusy(busy) {
@@ -258,6 +287,7 @@ async function onJoin(event) {
 
   setJoinBusy(true);
   $('#clipboard-invite').hidden = true;
+  state.joinedAs = mode;
   try {
     let url;
     let password;
@@ -293,7 +323,7 @@ async function onJoin(event) {
       await api.stopServer().catch(() => {});
     }
     // Tentativa cancelada para abrir outro convite: o erro dela não interessa.
-    if (!state.pendingInvite) showJoinError(cleanError(err));
+    if (!state.pendingInvite) showJoinFailure(err, address);
   } finally {
     setJoinBusy(false);
     const next = state.pendingInvite;
@@ -326,19 +356,22 @@ async function openInvite(invite) {
   }
   if (state.inRoom) {
     if (sameRoomAs(invite)) return;
-    const question = state.hosting && state.mesh.peers.size > 0
-      ? `Entrar na sala "${invite.room}"? Você está hospedando a sala atual: se sair, os outros participantes perdem a conexão.`
-      : `Entrar na sala "${invite.room}"? Você vai sair da sala atual.`;
-    if (!window.confirm(question)) return;
-    await leaveRoom(true);
+    const ok = await askConfirm({
+      title: `Entrar na sala "${invite.room}"?`,
+      text: state.hosting && state.mesh.peers.size > 0
+        ? 'Você está hospedando a sala atual: se sair, os outros participantes perdem a conexão.'
+        : 'Você vai sair da sala atual.',
+      ok: 'Trocar de sala',
+    });
+    if (!ok) return;
+    if (state.inRoom) await leaveRoom(true);
   }
   $('#mode-join').checked = true;
-  syncModeFields();
   // A senha digitada vale só para o servidor em que foi digitada.
   if (parseServerAddress($('#server-url').value)?.url !== invite.url) $('#server-password').value = '';
   $('#server-url').value = invite.invite;
   $('#room').value = invite.room;
-  updateSlate();
+  syncModeFields(); // (refaz a ficha também)
   $('#clipboard-invite').hidden = true;
   if ($('#name').value.trim()) {
     $('#join-form').requestSubmit();
@@ -393,6 +426,7 @@ function wireMesh(mesh) {
     updateBitrateHint();
     if (state.camera) renderCameraUi(); // quem chegou numa versão antiga não vê a câmera
     renderVoiceUi();
+    pushStatus(); // a bandeja precisa saber se tem gente na sala que você hospeda
     if (state.inRoom && !silent) toast(`${peer.name} entrou na sala.`);
   });
   on('peer-left', ({ peer, silent }) => {
@@ -406,6 +440,7 @@ function wireMesh(mesh) {
     renderOutgoing();
     refreshShareSettings();
     updateBitrateHint();
+    pushStatus();
     if (state.inRoom && !silent) toast(`${peer.name} saiu da sala.`);
   });
   // Alguém parou (ou voltou) de assistir a minha tela, ou mudou o tamanho dela.
@@ -452,8 +487,8 @@ function wireMesh(mesh) {
     if (reconnected) toast('Reconectado ao servidor.');
   });
   on('fatal', ({ message }) => {
-    toast(message, 'error', 8000);
-    leaveRoom(true);
+    // O motivo fica na tela de entrada (um aviso sumiria sozinho).
+    leaveRoom(true).then(() => showJoinError(message));
   });
   on('reconnect-failed', ({ attempt }) => {
     // A reconexão tenta sempre o mesmo endereço. Se a sala foi recriada, o link mudou.
@@ -492,8 +527,14 @@ function enterRoom() {
   for (const peer of state.mesh.peers.values()) syncTile(peer);
   clearInterval(state.speakingTimer);
   state.speakingTimer = setInterval(updateSpeaking, 150);
-  // O microfone volta como estava da última vez.
-  if (prefs.micOn) startMic();
+  // O microfone volta como estava da última vez, com aviso e som: ele liga sem clique.
+  if (prefs.micOn) {
+    startMic().then((on) => {
+      if (!on || !state.inRoom) return;
+      toast('Microfone ligado, como da última vez. Ctrl+Alt+M desliga.', 'info', 7000);
+      chime('mic-on');
+    });
+  }
   layoutTiles();
   clearInterval(state.statsTimer);
   state.statsTimer = setInterval(updateStats, STATS_INTERVAL_MS);
@@ -503,8 +544,12 @@ function enterRoom() {
 async function leaveRoom(force = false) {
   if (!state.mesh) return;
   if (!force && state.hosting && state.mesh.peers.size > 0) {
-    const ok = window.confirm('Você está hospedando esta sala. Se sair, os outros participantes perdem a conexão com o servidor. Sair mesmo assim?');
-    if (!ok) return;
+    const ok = await askConfirm({
+      title: 'Sair e fechar a sala?',
+      text: 'Você está hospedando esta sala. Se sair, os outros participantes perdem a conexão com ela.',
+      ok: 'Sair mesmo assim',
+    });
+    if (!ok || !state.mesh) return;
   }
   stopShare();
   stopCamera();
@@ -548,6 +593,30 @@ function setServerStatus(connected) {
     : 'Sem conexão com o servidor. As transmissões em andamento continuam; tentando reconectar.';
 }
 
+// ---------- Confirmação ----------
+// Uma janela do próprio Telão no lugar do window.confirm (que tem a cara do Windows,
+// não a da mesa). Esc e Cancelar respondem "não".
+
+let confirmResolve = null;
+
+function askConfirm({ title, text, ok }) {
+  confirmResolve?.(false); // uma pergunta nova toma o lugar da anterior
+  const dialog = $('#confirm');
+  $('#confirm-title').textContent = title;
+  $('#confirm-text').textContent = text;
+  $('#confirm-ok').textContent = ok;
+  if (!dialog.open) dialog.showModal();
+  $('#confirm-cancel').focus(); // o padrão é o lado seguro
+  return new Promise((resolve) => { confirmResolve = resolve; });
+}
+
+function answerConfirm(yes) {
+  const resolve = confirmResolve;
+  confirmResolve = null;
+  if ($('#confirm').open) $('#confirm').close();
+  resolve?.(yes);
+}
+
 // ---------- Bandeja, atalhos globais e comandos ----------
 
 /** Informa o processo principal (bandeja, selo "ao vivo", atalhos). */
@@ -555,7 +624,10 @@ async function pushStatus() {
   let taken = [];
   try {
     taken = await api.setStatus({
-      inRoom: state.inRoom, sharing: Boolean(state.share), paused: Boolean(state.share?.paused), mic: Boolean(state.mic),
+      inRoom: state.inRoom, sharing: Boolean(state.share), paused: Boolean(state.share?.paused),
+      mic: Boolean(state.mic), deafened: state.deafened,
+      // Hospedando com gente na sala: fechar o Telão derruba todo mundo (a bandeja pergunta antes).
+      hostingOthers: Boolean(state.hosting && state.mesh?.peers.size > 0),
     });
   } catch {
     return;
@@ -576,7 +648,27 @@ function onCommand(command) {
     if (state.share && prefs.sounds === false) playSound('pause');
   } else if (command === 'share-stop') stopShare();
   else if (command === 'mic-toggle') toggleMic({ shortcut: true });
+  else if (command === 'deafen-toggle') toggleDeafen({ shortcut: true });
   else if (command === 'share-toggle') toggleShareByShortcut();
+  else if (command === 'quit-request') confirmQuit();
+}
+
+/** "Sair do Telão" na bandeja, no ar ou hospedando com gente: pergunta antes de fechar. */
+async function confirmQuit() {
+  const ok = await askConfirm({
+    title: 'Fechar o Telão?',
+    text: state.hosting && state.mesh?.peers.size > 0
+      ? 'Você está hospedando a sala: se fechar, os outros participantes perdem a conexão.'
+      : 'A sua transmissão para e você sai da sala.',
+    ok: 'Fechar o Telão',
+  });
+  if (ok) api.quitApp();
+}
+
+/** A tela principal do Windows (a que a lista marca como "principal"). */
+function primaryScreen(sources) {
+  const screens = sources.filter((s) => s.type === 'screen');
+  return screens.find((s) => /principal/.test(s.detail || '')) || screens[0] || null;
 }
 
 /**
@@ -587,44 +679,51 @@ function onCommand(command) {
  */
 async function toggleShareByShortcut() {
   if (!state.inRoom || state.starting) return;
+  // Pelo atalho, com o jogo na frente, o som é a única confirmação: toca mesmo com
+  // os sons de aviso desligados (com eles ligados, já tocou).
+  const confirmBySound = (kind) => { if (prefs.sounds === false) playSound(kind); };
   if (state.share) {
     stopShare();
+    confirmBySound('stop');
     return;
   }
+  let sources = [];
+  try { sources = await api.listSources({ thumbnails: false }); } catch { /* cai no seletor */ }
   const last = prefs.lastShare;
-  if (last) {
-    let sources = [];
-    try { sources = await api.listSources({ thumbnails: false }); } catch { /* cai no seletor */ }
-    const source = sources.find((s) => s.id === last.id)
-      || (last.type === 'screen' ? sources.find((s) => s.type === 'screen') : null);
-    if (source && await startShare(source, last.audio)) return;
+  // A mesma tela ou janela da última vez. Uma janela aberta de novo (o jogo reiniciou)
+  // ganha outro id: aí vale a janela com o mesmo nome. Sem última vez, a tela principal.
+  const source = (last && (sources.find((s) => s.id === last.id)
+    || sources.find((s) => s.type === last.type && s.name === last.name)))
+    || (!last || last.type === 'screen' ? primaryScreen(sources) : null);
+  if (source && await startShare(source, last ? last.audio : prefs.audio)) {
+    confirmBySound('start');
+    return;
   }
   if (!state.inRoom || state.share) return;
-  api.showWindow();
+  // Não deu para começar sozinho (a janela da última vez fechou): o seletor fica
+  // pronto no Telão, sem puxar a janela por cima do jogo; som e aviso dizem isso.
+  playSound('error');
+  api.attention({
+    title: 'Escolha o que transmitir',
+    body: last?.name ? `"${last.name}" não está aberta. Clique para escolher no Telão.` : 'Clique para escolher no Telão.',
+  }).catch(() => {});
   openPicker();
-}
-
-function renderSoundsButton() {
-  const on = prefs.sounds !== false;
-  const btn = $('#sounds-btn');
-  btn.innerHTML = icon(on ? 'bell' : 'bell-off');
-  btn.setAttribute('aria-pressed', String(on));
-  btn.title = on ? 'Sons de aviso: ligados' : 'Sons de aviso: desligados';
-  btn.setAttribute('aria-label', 'Sons de aviso'); // o estado vai no aria-pressed
 }
 
 // ---------- Convite (quando hospeda) ----------
 
+async function copyInvite(link) {
+  await api.copyText(link);
+  // O convite que eu mesmo copiei não deve virar a faixa "Você copiou um convite".
+  const copied = Array.isArray(prefs.copiedInvites) ? prefs.copiedInvites : [];
+  prefs.copiedInvites = [link, ...copied.filter((l) => l !== link)].slice(0, 10);
+  savePrefs();
+  toast('Convite copiado! Quem clicar nele abre o Telão já na sala.');
+}
+
 function inviteRow(link, adapter) {
   const copy = el('button', { class: 'icon-btn small', title: 'Copiar convite', 'aria-label': 'Copiar convite', html: icon('copy') });
-  copy.addEventListener('click', async () => {
-    await api.copyText(link);
-    // O convite que eu mesmo copiei não deve virar a faixa "Você copiou um convite".
-    const copied = Array.isArray(prefs.copiedInvites) ? prefs.copiedInvites : [];
-    prefs.copiedInvites = [link, ...copied.filter((l) => l !== link)].slice(0, 10);
-    savePrefs();
-    toast('Convite copiado! Quem clicar nele abre o Telão já na sala.');
-  });
+  copy.addEventListener('click', () => copyInvite(link));
   return el('div', { class: 'invite-item' },
     adapter ? el('span', { class: 'invite-iface' }, adapter) : null,
     el('div', { class: 'invite-row' }, el('code', { title: link }, link), copy));
@@ -633,7 +732,19 @@ function inviteRow(link, adapter) {
 // Placas de VPN e de máquinas virtuais vão para o fim da lista.
 const VIRTUAL_ADAPTER = /vethernet|virtualbox|vmware|wsl|hyper-v|loopback|bluetooth|hamachi|radmin|zerotier|tailscale|vpn|tap|tun/i;
 
+/** O convite principal da sala (o do monitor vazio): o link pela internet, se houver. */
+function mainInvite() {
+  const room = state.mesh?.room;
+  if (!room) return null;
+  const hosting = state.hosting;
+  if (!hosting) return /^wss:\/\//.test(state.serverUrl) ? inviteLink(state.serverUrl, room) : null;
+  if (hosting.publicUrl) return inviteLink(hosting.publicUrl, room);
+  const lan = [...hosting.addresses].sort((a, b) => VIRTUAL_ADAPTER.test(a.name) - VIRTUAL_ADAPTER.test(b.name))[0];
+  return lan ? inviteLink(`${lan.address}:${hosting.port}`, room) : null;
+}
+
 function renderInvite() {
+  renderEmptyStage(); // o convite também aparece no monitor vazio
   const hosting = state.hosting;
   const room = state.mesh?.room || '';
   // Sala num servidor pela internet (o do Telão ou o link de quem hospeda): todo
@@ -738,20 +849,46 @@ function avatar(name) {
  * aceso ao lado do nome. camera e mic: ícones depois do nome. id: quem é ('me' =
  * você), para o contorno de quem está falando (ver updateSpeaking).
  */
-function participantItem({ id, name, sub, pill, onAir = null, camera = false, mic = false }) {
+function participantItem({ id, name, sub, pill = null, onAir = null, camera = false, mic = false }) {
   const tally = onAir
     ? el('span', { class: `tally${onAir === 'paused' ? ' paused' : ''}`, title: onAir === 'paused' ? 'Pausado' : 'No ar' })
     : null;
   const badge = (on, kind, label) => (on
     ? el('span', { class: 'participant-media', role: 'img', title: label, 'aria-label': label.toLowerCase(), html: icon(kind) })
     : null);
-  return el('li', { class: `participant${isSpeaking(id) ? ' speaking' : ''}`, dataset: { peer: id } },
+  const item = el('li', { class: `participant${isSpeaking(id) ? ' speaking' : ''}`, dataset: { peer: id } },
     avatar(name),
     el('div', { class: 'participant-main' },
       el('div', { class: 'participant-name', title: name }, tally, el('span', { class: 'participant-label' }, name),
         badge(mic, 'mic', 'Microfone ligado'), badge(camera, 'camera', 'Câmera ligada')),
       el('div', { class: 'participant-sub', title: sub }, sub)),
     pill);
+  // O que muda a linha. A dica do sinal (o atraso, que muda a cada 2 s) fica de fora:
+  // ela é atualizada no lugar (ver syncRows).
+  item.dataset.sig = JSON.stringify([name, sub, onAir, camera, mic, pill?.className, pill?.textContent, pill?.getAttribute('aria-label')]);
+  return item;
+}
+
+/**
+ * Atualiza a lista só onde mudou: refazê-la inteira a cada 2 s derrubava o cursor
+ * do leitor de tela. Uma linha igual continua a mesma (só a dica do sinal muda).
+ */
+function syncRows(list, items) {
+  const current = new Map([...list.children].map((node) => [node.dataset.peer, node]));
+  const next = items.map((item) => {
+    const old = current.get(item.dataset.peer);
+    if (!old || old.dataset.sig !== item.dataset.sig) return item;
+    const pill = old.querySelector('.pill');
+    const title = item.querySelector('.pill')?.getAttribute('title');
+    if (pill && title != null && pill.getAttribute('title') !== title) pill.setAttribute('title', title);
+    return old;
+  });
+  const sameOrder = next.length === list.children.length && next.every((node, i) => list.children[i].dataset.peer === node.dataset.peer);
+  if (!sameOrder) {
+    list.replaceChildren(...next);
+    return;
+  }
+  next.forEach((node, i) => { if (list.children[i] !== node) list.children[i].replaceWith(node); });
 }
 
 const SIGNAL_KIND = { good: 'ok', ok: 'warn', bad: 'bad' };
@@ -769,7 +906,14 @@ function connectionPill(peer) {
   const rtt = peer.stats?.route?.rtt;
   const title = [route?.title, rtt != null ? `atraso de ${Math.round(rtt * 1000)} ms` : null].filter(Boolean).join(' · ');
   const level = peerSignal(peer.stats);
-  if (!level) return el('span', { class: 'pill ok', title }, 'conectado');
+  if (!level) return null;
+  // Sinal ótimo: só as barrinhas, sem cor nem texto (o texto aparece quando há problema).
+  if (level === 'good') {
+    return el('span', {
+      class: 'pill signal-pill', role: 'img', 'aria-label': `sinal ${SIGNAL_TEXT.good}`,
+      title: [`Sinal ${SIGNAL_TEXT.good}`, title].filter(Boolean).join(' · '),
+    }, signalBars(level));
+  }
   return el('span', { class: `pill signal-pill ${SIGNAL_KIND[level]}`, title },
     signalBars(level), `sinal ${SIGNAL_TEXT[level]}`);
 }
@@ -777,15 +921,13 @@ function connectionPill(peer) {
 function renderParticipants() {
   const mesh = state.mesh;
   if (!mesh) return;
-  let mine = state.hosting ? 'Hospedando a sala' : 'Na sala';
+  let mine = state.hosting ? 'Hospedando a sala' : (state.joinedAs === 'host' ? 'Criou a sala' : 'Na sala');
   if (state.share) mine = `${state.share.paused ? 'Pausado' : 'Transmitindo'}: ${state.share.source.name}${state.share.audio ? ' · com som' : ''}`;
-  const myPill = state.share
-    ? el('span', { class: state.share.paused ? 'pill warn' : 'pill live' }, state.share.paused ? 'Pausado' : 'No ar')
-    : null;
+  // O seu estado no ar já está na lâmpada NO AR do alto: aqui fica só o tally.
   const myAir = state.share ? (state.share.paused ? 'paused' : 'live') : null;
   if (state.deafened) mine += ' · vozes silenciadas';
   const items = [participantItem({
-    id: 'me', name: `${mesh.name} (você)`, sub: mine, pill: myPill, onAir: myAir,
+    id: 'me', name: `${mesh.name} (você)`, sub: mine, onAir: myAir,
     camera: Boolean(state.camera), mic: Boolean(state.mic),
   })];
   // Quem está numa versão antiga (as melhorias de CPU só valem com todos atualizados).
@@ -793,14 +935,17 @@ function renderParticipants() {
     [...mesh.peers.values()].map((p) => ({ id: p.id, version: p.state.version })),
     mesh.serverFeatures.includes('version'));
   for (const peer of mesh.peers.values()) {
+    // Quem você parou de assistir vem primeiro: é o que explica a tela que sumiu.
+    const screenOff = peer.state.sharing && state.tiles.get(tileKey(peer.id, 'screen'))?.watching === false;
+    const cameraOff = Boolean(peer.remoteCameraId) && state.tiles.get(tileKey(peer.id, 'camera'))?.watching === false;
     const parts = [];
+    if (screenOff && cameraOff) parts.push('Você parou de assistir a tela e a câmera');
+    else if (screenOff) parts.push('Você parou de assistir a tela');
+    else if (cameraOff) parts.push('Você parou de assistir a câmera');
     if (peer.state.sharing) {
-      let text = `${peer.state.paused ? 'Pausado' : 'Transmitindo'}: ${peer.state.label || 'tela'}${peer.state.audio ? ' · com som' : ''}`;
-      if (state.tiles.get(tileKey(peer.id, 'screen'))?.watching === false) text += ' · você parou de assistir';
-      parts.push(text);
-    }
-    if (peer.remoteCameraId && state.tiles.get(tileKey(peer.id, 'camera'))?.watching === false) {
-      parts.push('câmera: você parou de assistir');
+      const what = `${peer.state.label || 'tela'}${peer.state.audio ? ' · com som' : ''}`;
+      if (screenOff) parts.push(peer.state.paused ? `Pausado: ${what}` : what);
+      else parts.push(`${peer.state.paused ? 'Pausado' : 'Transmitindo'}: ${what}`);
     }
     let sub = parts.join(' · ') || 'Na sala';
     if (outdated.has(peer.id)) sub += ' · versão antiga do Telão';
@@ -810,8 +955,32 @@ function renderParticipants() {
       camera: Boolean(peer.remoteCameraId), mic: Boolean(peer.remoteVoiceId),
     }));
   }
-  $('#participants').replaceChildren(...items);
+  syncRows($('#participants'), items);
   $('#participant-count').textContent = String(items.length);
+  arrangeConsole();
+}
+
+/**
+ * A ordem dos painéis da sala acompanha o momento: Voz sempre logo abaixo de "Na
+ * sala"; transmitindo, "Sua transmissão" (compacta) vem em seguida; sozinho, o
+ * convite sobe. Os painéis mudam de lugar no HTML, não só na tela: assim o Tab e o
+ * leitor de tela seguem a ordem que se vê.
+ */
+function arrangeConsole() {
+  const live = Boolean(state.share);
+  const alone = Boolean(state.mesh) && state.mesh.peers.size === 0;
+  const box = $('#console');
+  box.classList.toggle('is-live', live);
+  box.classList.toggle('is-alone', alone);
+  const ids = ['room-update', 'people-panel', ...(alone ? ['invite-panel'] : []), 'voice-panel',
+    ...(live ? ['share-panel', 'camera-panel'] : ['camera-panel', 'share-panel']),
+    ...(alone ? [] : ['invite-panel']), 'shortcuts-panel'];
+  const wanted = ids.map((id) => document.getElementById(id));
+  if (wanted.every((node, i) => box.children[i] === node)) return;
+  const active = document.activeElement;
+  box.append(...wanted);
+  // Mudar um nó de lugar tira o foco de dentro dele: devolve.
+  if (active && box.contains(active) && document.activeElement !== active) active.focus({ preventScroll: true });
 }
 
 // ---------- Telas recebidas ----------
@@ -891,8 +1060,8 @@ function createTile(peer, kind) {
   const paused = camera ? null : el('div', { class: 'tile-paused', html: icon('pause') }, pausedText);
   // Sem aria-live aqui: o leitor de tela anunciaria cada emoji (inclusive os seus).
   const reactions = camera ? null : el('div', { class: 'reactions-layer' });
-  const muteBtn = camera ? null : el('button', { class: 'icon-btn', title: 'Silenciar', 'aria-label': 'Silenciar' });
-  const volume = camera ? null : el('input', { type: 'range', min: '0', max: '1', step: '0.05', value: '1', title: 'Volume', 'aria-label': `Volume de ${peer.name}` });
+  const muteBtn = camera ? null : el('button', { class: 'icon-btn', title: `Silenciar ${peer.name}`, 'aria-label': `Silenciar ${peer.name}` });
+  const volume = camera ? null : el('input', { type: 'range', min: '0', max: '1', step: '0.05', value: '1', 'aria-label': `Volume da transmissão de ${peer.name}` });
   const pinBtn = el('button', { class: 'icon-btn', title: 'Destacar', 'aria-label': `Destacar ${who}`, 'aria-pressed': 'false', html: icon('pin') });
   const pipBtn = el('button', {
     class: 'icon-btn pip-btn', title: 'Janelinha flutuante: fica por cima dos outros programas',
@@ -911,16 +1080,23 @@ function createTile(peer, kind) {
     }, emoji)));
   // Um monitor do multivisor: a imagem (com os controles por cima) e, embaixo, a faixa
   // de rótulo com o tally (aceso = no ar, tracejado = conectando, âmbar = pausado).
-  const root = el('div', { class: `tile waiting${camera ? ' camera' : ''}`, tabindex: '0', dataset: { peer: peer.id, key } },
+  const root = el('div', {
+    class: `tile waiting${camera ? ' camera' : ''}`, tabindex: '0', dataset: { peer: peer.id, key },
+    role: 'group', 'aria-label': camera ? `Câmera de ${peer.name}` : `Tela de ${peer.name}`,
+  },
     el('div', { class: 'tile-screen' },
       video,
       el('div', { class: 'tile-wait' }, el('div', { class: 'spinner' }), waitText),
       paused,
       reactions,
       stats,
-      reactionBar,
-      el('div', { class: 'tile-bar' }, muteBtn, volume, el('span', { class: 'spacer' }), pinBtn, watchBtn, pipBtn, infoBtn, fullBtn)),
-    el('div', { class: 'umd' }, el('span', { class: 'tally', 'aria-hidden': 'true' }), name, label, muteBadge, signal));
+      // Os controles antes das reações: pelo teclado, o que importa vem primeiro.
+      el('div', { class: 'tile-bar' }, muteBtn, volume, el('span', { class: 'spacer' }), pinBtn, watchBtn, pipBtn, infoBtn, fullBtn),
+      reactionBar),
+    el('div', { class: 'umd' }, el('span', { class: 'tally', 'aria-hidden': 'true' }),
+      el('span', { class: 'tile-pin', title: 'Em destaque', 'aria-hidden': 'true', html: icon('pin') }),
+      name, label, muteBadge, signal));
+  root.setAttribute('aria-describedby', 'tile-keys-help');
 
   const tile = {
     key, peerId: peer.id, kind, root, video, name, label, signal, waitText, stats, pausedText, watchBtn, reactions,
@@ -939,9 +1115,16 @@ function createTile(peer, kind) {
       video.volume = Math.min(1, Math.max(0, saved.volume));
       tile.userMuted = saved.muted === true;
     }
+    const showVolume = () => {
+      const percent = `${Math.round(Number(volume.value) * 100)}%`;
+      volume.setAttribute('aria-valuetext', percent);
+      volume.title = `Volume da transmissão: ${percent}`;
+    };
+    showVolume();
     volume.addEventListener('input', () => {
       video.volume = Number(volume.value);
       if (video.volume > 0) tile.userMuted = false;
+      showVolume();
       rememberVolume(tile);
       applyAudioRouting();
     });
@@ -982,6 +1165,7 @@ function createTile(peer, kind) {
     layoutTiles();
   });
   video.addEventListener('dblclick', toggleFullscreen);
+  setupTileKeys(root);
   for (const type of ['playing', 'resize', 'loadeddata']) {
     video.addEventListener(type, () => {
       const current = state.mesh?.peers.get(peer.id);
@@ -990,6 +1174,34 @@ function createTile(peer, kind) {
   }
   setupControls(tile);
   return tile;
+}
+
+/**
+ * Teclado: cada monitor é uma parada só do Tab (eram 13: reações e controles).
+ * Enter entra nos controles dele (o Tab anda entre eles e as setas mexem no volume);
+ * Esc, ou sair do monitor, volta ao normal.
+ */
+function setupTileKeys(root) {
+  const controls = () => root.querySelectorAll('.tile-bar button, .tile-bar input, .reaction-bar button');
+  const setInside = (inside) => {
+    root.classList.toggle('keys-inside', inside);
+    for (const node of controls()) node.tabIndex = inside ? 0 : -1;
+  };
+  setInside(false);
+  root.addEventListener('keydown', (event) => {
+    if (event.target === root && event.key === 'Enter') {
+      setInside(true);
+      [...controls()].find((node) => !node.hidden && node.getClientRects().length)?.focus();
+      event.preventDefault();
+    } else if (event.key === 'Escape' && event.target !== root && root.classList.contains('keys-inside')) {
+      setInside(false);
+      root.focus();
+      event.preventDefault();
+    }
+  });
+  root.addEventListener('focusout', (event) => {
+    if (!root.contains(event.relatedTarget)) setInside(false);
+  });
 }
 
 const watchedTiles = () => [...state.tiles.values()].filter((t) => t.watching);
@@ -1158,7 +1370,14 @@ function layoutTiles() {
   const screens = watched.filter((t) => t.kind === 'screen');
   let main = watched;
   if (pinned) main = [pinned];
-  else if (screens.length && screens.length < watched.length) main = screens;
+  else if (screens.length && screens.length < watched.length) {
+    // As câmeras vão para a fileira, mas preenchem os buracos da grade das telas
+    // (3 telas numa grade 2×2 deixariam um canto preto).
+    const stage = $('#tiles');
+    const cols = bestColumns(screens.length, stage.clientWidth, stage.clientHeight);
+    const holes = cols * Math.ceil(screens.length / cols) - screens.length;
+    main = [...screens, ...watched.filter((t) => t.kind === 'camera').slice(0, holes)];
+  }
   const strip = watched.filter((t) => !main.includes(t));
 
   const tiles = $('#tiles');
@@ -1179,14 +1398,45 @@ function layoutTiles() {
   tiles.hidden = main.length === 0;
   row.hidden = strip.length === 0;
   renderOffscreen(unwatched);
-  $('#empty-stage').hidden = watched.length > 0;
-  $('#empty-idle').hidden = unwatched.length > 0;
-  $('#empty-unwatched').hidden = unwatched.length === 0;
-  $('#empty-title').textContent = unwatched.length ? 'Você não está assistindo ninguém' : 'Ninguém está transmitindo';
+  renderEmptyStage();
   // Multivisor: as colunas que deixam cada imagem maior no espaço que sobrou.
   tiles.style.setProperty('--cols', String(bestColumns(main.length, tiles.clientWidth, tiles.clientHeight)));
   updateKeepAwake();
   scheduleViewSync(); // o tamanho de cada imagem mudou
+}
+
+/**
+ * O monitor vazio do palco. Sozinho na sala, ele vira o convite: quem criou a sala
+ * manda o link; quem entrou por convite fica sabendo que é o primeiro (e confere a
+ * sala: um nome diferente é outra sala, vazia).
+ */
+function renderEmptyStage() {
+  const mesh = state.mesh;
+  if (!mesh) return;
+  const tiles = [...state.tiles.values()];
+  const watched = tiles.filter((t) => t.watching).length;
+  const unwatched = tiles.length - watched;
+  const alone = mesh.peers.size === 0;
+  const stage = $('#empty-stage');
+  stage.hidden = watched > 0;
+  stage.classList.toggle('is-alone', alone);
+  $('#empty-idle').hidden = alone || unwatched > 0;
+  $('#empty-unwatched').hidden = alone || unwatched === 0;
+  $('#empty-alone').hidden = !alone;
+  if (!alone) {
+    $('#empty-title').textContent = unwatched ? 'Você não está assistindo ninguém' : 'Ninguém está transmitindo';
+    return;
+  }
+  const host = state.joinedAs === 'host';
+  $('#empty-title').textContent = host ? 'Só você na sala por enquanto' : 'Você é o primeiro aqui';
+  $('#empty-alone-text').replaceChildren(...(host
+    ? ['Mande o convite para a turma: quem clicar nele abre o Telão já na sala ', el('strong', {}, mesh.room), '.']
+    : ['Ninguém mais entrou na sala ', el('strong', {}, mesh.room),
+      ' ainda. Se a turma já devia estar aqui, confira se o convite é o mesmo: um nome de sala diferente é outra sala, vazia.']));
+  const link = mainInvite();
+  $('#empty-invite').hidden = !link;
+  $('#empty-invite-link').textContent = link || '';
+  $('#empty-invite-link').title = link || '';
 }
 
 /** "Não assistindo": quem você parou de assistir, para voltar com um clique. */
@@ -1230,18 +1480,21 @@ function renderUpdate(status) {
   const portable = s?.status === 'available';
   const show = ready || portable;
   $('#update-banner').hidden = !show;
-  $('#update-btn').hidden = !show;
-  // Na sala: a faixa no topo do painel (até atualizar ou clicar em "Agora não");
-  // o botão do alto continua, com um ponto de novidade.
-  $('#room-update').hidden = !show || state.updateDismissed === s.version;
+  // Na sala, um aviso só: a faixa no topo do painel; dispensada ("Agora não"), fica
+  // a tecla do alto, com a lâmpada de novidade.
+  const banner = show && state.updateDismissed !== s.version;
+  $('#room-update').hidden = !banner;
+  $('#update-btn').hidden = !show || banner;
   if (!show) return;
   const title = ready ? `Versão ${s.version} pronta` : `Versão ${s.version} disponível`;
   $('#update-title').textContent = title;
-  $('#room-update-title').textContent = title;
+  // Na sala, com o painel estreito, a palavra do fim sai para o título caber na linha.
+  $('#room-update-title').replaceChildren(`Versão ${s.version}`, el('span', { class: 'update-word' }, ready ? ' pronta' : ' disponível'));
   $('#update-detail').textContent = ready
-    ? 'Ela entra quando você fechar o Telão, ou agora mesmo:'
+    ? 'Ela entra sozinha quando você fechar o Telão.'
     : 'O Telão portátil não se atualiza sozinho: baixe o arquivo novo.';
-  $('#room-update-detail').textContent = ready
+  // Na sala, a faixa é de uma linha só: o detalhe fica na dica do mouse.
+  $('#room-update').title = ready
     ? 'Ela entra quando você fechar o Telão. Atualizar agora tira você da sala por alguns segundos.'
     : 'O Telão portátil não se atualiza sozinho: baixe o arquivo novo.';
   const action = ready ? 'Reiniciar e atualizar' : 'Baixar';
@@ -1255,9 +1508,13 @@ function renderUpdate(status) {
 
 async function applyUpdate() {
   if (state.update?.status === 'ready' && state.inRoom) {
-    const ok = window.confirm(state.hosting
-      ? 'Atualizar agora reinicia o Telão, e a sala que você hospeda fecha para todos. Atualizar mesmo assim?'
-      : 'Atualizar agora reinicia o Telão, e você sai da sala. Atualizar mesmo assim?');
+    const ok = await askConfirm({
+      title: `Atualizar para a ${state.update.version} agora?`,
+      text: state.hosting
+        ? 'O Telão reinicia, e a sala que você hospeda fecha para todos.'
+        : 'O Telão reinicia, e você sai da sala por alguns segundos.',
+      ok: 'Reiniciar e atualizar',
+    });
     if (!ok) return;
   }
   try {
@@ -1292,7 +1549,7 @@ function applyAudioRouting() {
     tile.muteBtn.classList.toggle('active', muted);
     tile.muteBtn.title = echoGuard
       ? 'Silenciado para evitar eco enquanto você transmite com som (dá para mudar no painel)'
-      : (tile.userMuted ? 'Ativar som' : 'Silenciar');
+      : (tile.userMuted ? `Ativar o som de ${tile.peerName}` : `Silenciar ${tile.peerName}`);
     tile.muteBtn.setAttribute('aria-label', tile.muteBtn.title);
     // Na faixa: por que essa pessoa não está sendo ouvida (o volume fica lembrado pelo nome).
     let why = '';
@@ -1374,7 +1631,10 @@ function renderTileStats(peer) {
   for (const kind of ['screen', 'camera']) {
     const monitor = state.tiles.get(tileKey(peer.id, kind));
     if (!monitor) continue;
-    monitor.signal.replaceChildren(...(level ? [signalBars(level), el('span', { class: 'signal-text' }, `sinal ${SIGNAL_TEXT[level]}`)] : []));
+    // Sinal ótimo: só as barrinhas; o texto aparece quando há problema.
+    const parts = level ? [signalBars(level)] : [];
+    if (level && level !== 'good') parts.push(el('span', { class: 'signal-text' }, `sinal ${SIGNAL_TEXT[level]}`));
+    monitor.signal.replaceChildren(...parts);
     monitor.signal.title = level ? `Sinal ${SIGNAL_TEXT[level]}` : '';
   }
   const tile = state.tiles.get(tileKey(peer.id, 'screen'));
@@ -1516,6 +1776,25 @@ function renderPresets() {
   const active = matchPreset(readShareSettings());
   for (const button of $$('#presets .preset')) button.setAttribute('aria-pressed', String(button.dataset.preset === active));
   $('#preset-custom').hidden = Boolean(active);
+  renderQualitySummary();
+}
+
+/**
+ * A qualidade em uma linha. Fora do ar, o resumo (as teclas ficam no seletor de
+ * tela); no ar, a linha que abre as teclas, para mudar sem parar a transmissão.
+ */
+function renderQualitySummary() {
+  const live = Boolean(state.share);
+  const settings = readShareSettings();
+  const preset = QUALITY_PRESETS.find((p) => p.id === matchPreset(settings));
+  const name = preset ? preset.label : 'Personalizada';
+  $('#share-idle').hidden = live;
+  $('#share-quality').hidden = !live;
+  $('#share-quality-summary').textContent = `Qualidade: ${name} · ${presetSpec(settings)}`;
+  if (!live) {
+    $('#share-idle').replaceChildren('Fora do ar. Em ', el('strong', {}, 'Compartilhar tela'),
+      ` você escolhe a tela, o som e a qualidade (agora: ${name.toLowerCase()}, ${presetSpec(settings)}).`);
+  }
 }
 
 function readShareSettings() {
@@ -1604,18 +1883,30 @@ function updateBitrateHint() {
 function renderShareUi() {
   const sharing = Boolean(state.share);
   const paused = Boolean(state.share?.paused);
+  // Fora do ar, "Compartilhar tela" é a tecla forte (neutra: o vermelho cheio é só do
+  // que está no ar); no ar, "Parar transmissão" é uma tecla comum com o ícone de parar.
   const btn = $('#share-btn');
   btn.classList.toggle('live', sharing);
   btn.classList.toggle('primary', !sharing);
   btn.innerHTML = `${icon(sharing ? 'stop' : 'monitor')}<span class="label">${sharing ? 'Parar transmissão' : 'Compartilhar tela'}</span>`;
   $('#share-live').hidden = !sharing;
   $('#share-live').classList.toggle('paused', paused);
-  // Lâmpada NO AR com o tempo no ar: apagada fora do ar, acende ao transmitir, âmbar pausada.
+  // Lâmpada NO AR com o tempo no ar: apagada fora do ar, acende ao transmitir, âmbar
+  // pausada. No ar, ela também é a tecla de pausar e retomar.
   const onAir = $('#on-air');
   onAir.classList.toggle('off', !sharing);
   onAir.classList.toggle('paused', paused);
-  onAir.title = sharing ? 'Tempo no ar' : 'Você não está transmitindo';
+  onAir.setAttribute('aria-disabled', String(!sharing));
+  onAir.tabIndex = sharing ? 0 : -1; // fora do ar, não é uma parada do Tab
+  const action = paused ? 'Retomar' : 'Pausar';
+  onAir.title = sharing ? `${action} a transmissão (Ctrl+Alt+P)` : 'Você não está transmitindo';
+  onAir.setAttribute('aria-label', sharing ? `${paused ? 'Pausado' : 'No ar'}. ${action} a transmissão` : 'Fora do ar');
   $('#on-air-lamp').textContent = paused ? 'Pausado' : 'No ar';
+  $('#on-air-lamp').dataset.hover = action;
+  // O símbolo do alto acende (a ordem do painel muda em renderParticipants, abaixo).
+  $('#room-view').classList.toggle('is-live', sharing);
+  announceAir(sharing ? (paused ? 'paused' : 'live') : 'off');
+  renderQualitySummary();
   if (sharing) updateClock();
   else $('#on-air-time').textContent = '--:--:--';
   $('#anti-echo-row').hidden = state.info.appAudio && state.share?.audioMode !== 'system';
@@ -1637,6 +1928,19 @@ function renderShareUi() {
   renderOutgoing();
   updateBitrateHint();
   renderVoiceUi(); // o modo "Tudo (sem filtro)" leva as vozes junto: avisa no painel Voz
+}
+
+const AIR_TEXT = {
+  live: 'Você está no ar.',
+  paused: 'Transmissão pausada: os outros veem uma tela preta.',
+  off: 'Você saiu do ar.',
+};
+
+/** Avisa o leitor de tela quando você entra no ar, pausa ou sai. */
+function announceAir(air) {
+  if (state.airState === air) return;
+  state.airState = air;
+  $('#sr-status').textContent = AIR_TEXT[air];
 }
 
 /** Tempo no ar (hh:mm:ss) ao lado da lâmpada NO AR. */
@@ -1956,7 +2260,12 @@ function stopMic(reason) {
   mic.outTrack.stop();
   mic.ctx.close().catch(() => {});
   state.speaking.delete('me');
-  if (reason) toast(reason, 'warn');
+  if (reason) {
+    toast(reason, 'warn');
+    // Com o jogo na frente, ninguém vê o aviso: som e notificação também.
+    playSound('mic-off');
+    api.attention({ title: 'O microfone parou', body: reason }).catch(() => {});
+  }
   if (state.inRoom) {
     renderVoiceUi();
     renderParticipants();
@@ -1996,6 +2305,15 @@ async function setDeafened(on, { restoreMic = true } = {}) {
   applyVoiceRouting();
   renderVoiceUi();
   renderParticipants();
+  pushStatus(); // a bandeja mostra "vozes silenciadas"
+}
+
+/** Silenciar vozes pela tecla, por Ctrl+Alt+D ou pela bandeja, com o som de confirmação. */
+function toggleDeafen({ shortcut = false } = {}) {
+  if (!state.inRoom) return;
+  setDeafened(!state.deafened);
+  // Pelo atalho, com o jogo na frente, o som é a única confirmação: toca sempre.
+  if (shortcut || prefs.sounds !== false) playSound(state.deafened ? 'deafen-on' : 'deafen-off');
 }
 
 const VOICE_MAX_VOLUME = 2; // dá para aumentar a voz de alguém até 200%, como no Discord
@@ -2091,7 +2409,7 @@ function updateSpeaking() {
     meter.style.setProperty('--level', meterPosition(mic.level).toFixed(3));
     meter.style.setProperty('--threshold', meterPosition(mic.threshold).toFixed(3));
     meter.classList.toggle('open', mic.open);
-    if (prefs.voiceAuto !== false) $('#sensitivity').value = String(Math.round(mic.threshold));
+    if (prefs.voiceAuto !== false) showSensitivity(Math.round(mic.threshold));
   }
   const levels = [['me', Boolean(mic?.open)]];
   for (const peer of mesh.peers.values()) levels.push([peer.id, mesh.voiceLevel(peer.id) >= SPEAKING_REMOTE]);
@@ -2100,6 +2418,13 @@ function updateSpeaking() {
     const row = $(`#participants [data-peer="${CSS.escape(id)}"]`);
     row?.classList.toggle('speaking', isSpeaking(id));
   }
+}
+
+/** A barra de sensibilidade (e o valor que o leitor de tela lê). */
+function showSensitivity(db) {
+  const slider = $('#sensitivity');
+  slider.value = String(db);
+  slider.setAttribute('aria-valuetext', `${slider.value} dB`);
 }
 
 function renderVoiceUi() {
@@ -2112,32 +2437,34 @@ function renderVoiceUi() {
   const key = $('#mic-key');
   key.setAttribute('aria-pressed', String(on));
   key.disabled = state.micStarting;
-  key.innerHTML = `${icon(on ? 'mic' : 'mic-off')}${on ? 'Microfone ligado' : 'Microfone desligado'}`;
+  // Rótulo fixo: o estado é a tecla acesa (e o aria-pressed), não a palavra.
+  key.innerHTML = `${icon(on ? 'mic' : 'mic-off')}Microfone`;
+  key.title = btn.title;
   const deaf = $('#deafen-key');
   deaf.setAttribute('aria-pressed', String(state.deafened));
-  deaf.innerHTML = `${icon(state.deafened ? 'headphones-off' : 'headphones')}${state.deafened ? 'Vozes silenciadas' : 'Silenciar vozes'}`;
-  deaf.title = state.deafened ? 'Voltar a ouvir as vozes' : 'Não ouvir ninguém (o seu microfone desliga junto)';
+  deaf.innerHTML = `${icon(state.deafened ? 'headphones-off' : 'headphones')}Silenciar vozes`;
+  deaf.title = state.deafened ? 'Voltar a ouvir as vozes (Ctrl+Alt+D)' : 'Não ouvir ninguém; o seu microfone desliga junto (Ctrl+Alt+D)';
   $('#mic-meter-row').hidden = !on;
   $('#mic-meter-off').hidden = on;
   $('#mic-device-field').hidden = true;
   // Ajustes do microfone.
   const auto = prefs.voiceAuto !== false;
   $('#sensitivity-auto').checked = auto;
-  const slider = $('#sensitivity');
-  slider.disabled = auto;
-  if (!auto) slider.value = String(prefs.voiceThreshold);
+  $('#sensitivity').disabled = auto;
+  if (!auto) showSensitivity(prefs.voiceThreshold);
   $('#voice-noise').checked = prefs.voiceNoise !== false;
   $('#voice-echo').checked = prefs.voiceEcho !== false;
   $('#voice-gain').checked = prefs.voiceGain !== false;
   if (on) renderMicDevices();
   renderVoicePeople();
-  // Avisos: quem não ouve a voz, e o modo de som que levaria as vozes para a transmissão.
+  // Avisos (só quando há o que avisar): quem não ouve a voz, e o modo de som que
+  // levaria as vozes para a transmissão. As dicas fixas ficam em "Ajustes do microfone".
   const notes = [];
   const old = [...(state.mesh?.peers.values() || [])].filter((peer) => !supportsVoice(peer)).map((peer) => peer.name);
   if (old.length) notes.push(`${old.join(', ')} ${old.length > 1 ? 'estão' : 'está'} numa versão antiga do Telão e não ${old.length > 1 ? 'participam' : 'participa'} da voz.`);
   if (state.share?.audioMode === 'system') notes.push('Transmitindo com "Tudo (sem filtro)", as vozes da sala vão junto no som da transmissão.');
-  notes.push('Ctrl+Alt+M liga e desliga o microfone, até com o jogo aberto. Use fone de ouvido para não dar eco.');
   $('#voice-hint').textContent = notes.join(' ');
+  $('#voice-hint').hidden = notes.length === 0;
 }
 
 /** Lista dos microfones do PC (só aparece com mais de um). */
@@ -2169,6 +2496,7 @@ function renderVoicePeople() {
     const showPercent = () => {
       percent.textContent = `${Math.round(Number(volume.value) * 100)}%`;
       volume.title = `Volume da voz de ${peer.name}: ${percent.textContent}`;
+      volume.setAttribute('aria-valuetext', percent.textContent);
     };
     // Um clique duplo volta para 100%.
     volume.addEventListener('dblclick', () => {
@@ -2261,8 +2589,14 @@ function stopCamera(reason) {
   state.camera = null;
   state.mesh?.stopCamera();
   for (const track of camera.stream.getTracks()) track.stop();
-  if (reason) toast(reason, 'warn');
-  else chime('stop');
+  if (reason) {
+    toast(reason, 'warn');
+    // Com o jogo na frente, ninguém vê o aviso: som e notificação também.
+    playSound('stop');
+    api.attention({ title: 'A câmera parou', body: reason }).catch(() => {});
+  } else {
+    chime('stop');
+  }
   if (state.inRoom) {
     renderCameraUi();
     renderParticipants();
@@ -2312,6 +2646,9 @@ async function renderCameraDevices() {
 async function openPicker() {
   state.picker.selected = state.share?.source.id ?? state.picker.selected;
   state.pickStale = true; // o que está tocando som agora pode ter mudado
+  // A qualidade se escolhe junto com a tela: as teclas vêm do painel para cá (e
+  // voltam quando o seletor fecha, ver setupPicker).
+  $('#picker-quality').append($('#quality-box'));
   if (!$('#picker').open) $('#picker').showModal();
   await loadSources();
 }
@@ -2339,16 +2676,28 @@ async function loadSources() {
   renderSources();
 }
 
+/** Marca a aba escolhida (para a vista e para o leitor de tela). */
+function markTab(tab) {
+  for (const t of $$('.tab')) {
+    t.classList.toggle('active', t.dataset.tab === tab);
+    t.setAttribute('aria-selected', String(t.dataset.tab === tab));
+    t.tabIndex = t.dataset.tab === tab ? 0 : -1; // as setas andam entre as abas
+  }
+}
+
 function renderSources() {
   const { sources, tab, selected } = state.picker;
-  for (const t of $$('.tab')) t.classList.toggle('active', t.dataset.tab === tab);
+  markTab(tab);
   const list = sources.filter((s) => s.type === tab);
   const grid = $('#source-grid');
   if (!list.length) {
     grid.replaceChildren(el('p', { class: 'hint' }, tab === 'screen' ? 'Nenhuma tela encontrada.' : 'Nenhuma janela aberta encontrada.'));
   } else {
     grid.replaceChildren(...list.map((s) => {
-      const card = el('button', { class: `source-card${s.id === selected ? ' selected' : ''}`, type: 'button', title: s.name, dataset: { id: s.id } },
+      const card = el('button', {
+        class: `source-card${s.id === selected ? ' selected' : ''}`, type: 'button', title: s.name,
+        'aria-pressed': String(s.id === selected), dataset: { id: s.id },
+      },
         el('div', { class: 'source-thumb' }, s.thumbnail ? el('img', { src: s.thumbnail, alt: '' }) : el('span', { html: icon('monitor') })),
         el('div', { class: 'source-name' }, s.icon ? el('img', { src: s.icon, alt: '' }) : null, el('span', {}, s.name)),
         s.detail ? el('div', { class: 'source-detail' }, s.detail) : null);
@@ -2448,7 +2797,7 @@ function renderPickList() {
   const all = new Map([...state.pickApps, ...pickedApps()].map((n) => [n.toLowerCase(), n]));
   const list = $('#pick-list');
   if (!all.size) {
-    list.replaceChildren(el('p', { class: 'hint' }, 'Nenhum app tocando som agora. Dê play no que você quer transmitir e clique em Atualizar.'));
+    list.replaceChildren(el('p', { class: 'hint' }, 'Nenhum app tocando som agora. Dê play no que você quer transmitir e clique em Recarregar.'));
     return;
   }
   list.replaceChildren(...[...all.values()].map((name) => {
@@ -2496,20 +2845,42 @@ function setupAudioControls() {
   $('#exclude-toggle').addEventListener('click', () => {
     $('#exclude-editor').hidden = !$('#exclude-editor').hidden;
   });
-  $('#exclude-list').addEventListener('change', () => {
-    prefs.audioExclude = parseExcludeList($('#exclude-list').value);
-    $('#exclude-list').value = prefs.audioExclude.join('\n');
-    savePrefs();
-    syncAudioControls();
-    if (!$('#pick-apps').hidden) renderPickList(); // a marca "(excluído)" muda
-  });
-  $('#exclude-reset').addEventListener('click', () => {
-    prefs.audioExclude = null;
+  const setExcluded = (list) => {
+    prefs.audioExclude = list;
     $('#exclude-list').value = excludedApps().join('\n');
     savePrefs();
     syncAudioControls();
-    if (!$('#pick-apps').hidden) renderPickList();
+    if (!$('#pick-apps').hidden) renderPickList(); // a marca "(excluído)" muda
+  };
+  // "Restaurar a lista padrão" vira "Desfazer" por alguns segundos: a lista era sua.
+  const resetButton = $('#exclude-reset');
+  let undoList = null;
+  let undoTimer = 0;
+  const showReset = () => {
+    clearTimeout(undoTimer);
+    undoList = null;
+    resetButton.textContent = 'Restaurar a lista padrão';
+    resetButton.disabled = !prefs.audioExclude;
+  };
+  $('#exclude-list').addEventListener('change', () => {
+    setExcluded(parseExcludeList($('#exclude-list').value));
+    showReset();
   });
+  resetButton.addEventListener('click', () => {
+    if (undoList) {
+      setExcluded(undoList);
+      showReset();
+      return;
+    }
+    const previous = prefs.audioExclude;
+    setExcluded(null);
+    showReset();
+    undoList = previous;
+    resetButton.textContent = 'Desfazer';
+    resetButton.disabled = false;
+    undoTimer = setTimeout(showReset, 10000);
+  });
+  showReset();
   syncAudioControls();
 }
 
@@ -2518,11 +2889,25 @@ function setupPicker() {
   $('#picker-close').addEventListener('click', () => dialog.close());
   $('#picker-cancel').addEventListener('click', () => dialog.close());
   $('#picker-refresh').addEventListener('click', loadSources);
+  // As teclas de qualidade voltam para o painel "Sua transmissão" (ver openPicker).
+  dialog.addEventListener('close', () => $('#share-quality-slot').append($('#quality-box')));
+  // Abas: as setas (e Home/End) trocam de aba, como nas abas do Windows.
+  $('.picker-tabs').addEventListener('keydown', (event) => {
+    const tabs = $$('.tab');
+    const i = tabs.indexOf(event.target);
+    if (i < 0 || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    let next = event.key === 'ArrowRight' ? i + 1 : event.key === 'ArrowLeft' ? i - 1 : 0;
+    if (event.key === 'End') next = tabs.length - 1;
+    const tab = tabs[(next + tabs.length) % tabs.length];
+    tab.focus();
+    tab.click();
+  });
   for (const tab of $$('.tab')) {
     tab.addEventListener('click', () => {
       state.picker.tab = tab.dataset.tab;
       if (state.picker.tab === 'window' && !state.picker.windowThumbs) {
-        for (const t of $$('.tab')) t.classList.toggle('active', t === tab);
+        markTab(state.picker.tab);
         loadSources(); // agora sim, com as miniaturas das janelas
       } else {
         renderSources();
@@ -2549,6 +2934,14 @@ function setupPicker() {
 }
 
 // ---------- Aparência ----------
+
+// Cores de destaque que se confundem com as luzes de estado (ver accentConflict no theme.js).
+const ACCENT_CONFLICT = {
+  green: 'Essa cor se confunde com o verde de "conectado" e de quem está falando. Dá para usar, mas a luz de "no ar" fica menos clara.',
+  amber: 'Essa cor se confunde com o âmbar de "pausado". Dá para usar, mas a luz de "no ar" fica menos clara.',
+  gray: 'Essa cor é quase cinza: a luz de "no ar" vai parecer apagada.',
+  danger: 'Essa cor se confunde com o vermelho de erro. Dá para usar, mas "no ar" e "deu erro" ficam parecidos.',
+};
 
 function currentAppearance() {
   return Theme.normalize(prefs.appearance);
@@ -2591,6 +2984,10 @@ function syncAppearanceDialog() {
   $('#accent-custom').value = accent;
   $('#accent-custom-label').classList.toggle('selected', !isPreset);
   $('#accent-hex').textContent = accent.toUpperCase();
+  const conflict = Theme.accentConflict(accent);
+  $('#accent-warning').hidden = !conflict;
+  $('#accent-warning').textContent = conflict ? ACCENT_CONFLICT[conflict] : '';
+  $('#sounds-on').checked = prefs.sounds !== false;
 }
 
 function setupAppearance() {
@@ -2613,6 +3010,12 @@ function setupAppearance() {
     prefs.appearance = null;
     savePrefs();
     applyAppearance();
+  });
+  // Sons de aviso: ficam nos Ajustes (a barra do alto tinha um sino só para isso).
+  $('#sounds-on').addEventListener('change', (event) => {
+    prefs.sounds = event.target.checked;
+    savePrefs();
+    if (prefs.sounds) playSound('stream');
   });
   $('#appearance-close').addEventListener('click', () => dialog.close());
   $('#appearance-done').addEventListener('click', () => dialog.close());
@@ -2645,11 +3048,11 @@ async function init() {
   restoreJoinForm();
   setupQualityControls();
   setupPicker();
-  renderSoundsButton();
 
   for (const radio of $$('input[name="mode"], input[name="host-where"]')) radio.addEventListener('change', syncModeFields);
   $('#server-url').addEventListener('input', () => {
     fillRoomFromAddress();
+    syncJoinFields();
     checkClipboardInvite();
     updateSlate();
   });
@@ -2665,6 +3068,7 @@ async function init() {
   $('#room-update-dismiss').addEventListener('click', () => {
     state.updateDismissed = state.update?.version || '';
     renderUpdate();
+    $('#update-btn').focus(); // a faixa sumiu; o aviso continua na tecla do alto
   });
   api.onUpdateStatus(renderUpdate);
   api.getUpdateStatus().then(renderUpdate).catch(() => {});
@@ -2678,10 +3082,18 @@ async function init() {
   $('#switch-btn').addEventListener('click', openPicker);
   $('#stop-btn').addEventListener('click', () => stopShare());
   $('#pause-btn').addEventListener('click', togglePause);
+  $('#on-air').addEventListener('click', () => { if (state.share) togglePause(); });
+  $('#empty-invite-copy').addEventListener('click', () => {
+    const link = mainInvite();
+    if (link) copyInvite(link);
+  });
+  $('#confirm-ok').addEventListener('click', () => answerConfirm(true));
+  $('#confirm-cancel').addEventListener('click', () => answerConfirm(false));
+  $('#confirm').addEventListener('close', () => answerConfirm(false)); // Esc
   $('#leave-btn').addEventListener('click', () => leaveRoom());
   $('#camera-btn').addEventListener('click', () => (state.camera ? stopCamera() : startCamera()));
   for (const id of ['#mic-btn', '#mic-key']) $(id).addEventListener('click', () => toggleMic());
-  $('#deafen-key').addEventListener('click', () => setDeafened(!state.deafened));
+  $('#deafen-key').addEventListener('click', () => toggleDeafen());
   $('#mic-device').addEventListener('change', (event) => startMic(event.target.value));
   $('#sensitivity-auto').addEventListener('change', (event) => {
     prefs.voiceAuto = event.target.checked;
@@ -2693,6 +3105,7 @@ async function init() {
   });
   $('#sensitivity').addEventListener('input', (event) => {
     prefs.voiceThreshold = Number(event.target.value);
+    event.target.setAttribute('aria-valuetext', `${event.target.value} dB`);
     savePrefs();
     applyGateSettings();
   });
@@ -2707,11 +3120,17 @@ async function init() {
   }
   $('#camera-off-btn').addEventListener('click', () => stopCamera());
   $('#camera-device').addEventListener('change', (event) => startCamera(event.target.value));
-  $('#sounds-btn').addEventListener('click', () => {
-    prefs.sounds = prefs.sounds === false;
-    savePrefs();
-    renderSoundsButton();
-    if (prefs.sounds) playSound('stream');
+  // F6 (e Shift+F6) pula entre a barra do alto, o palco e o painel da sala, como no Windows.
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'F6' || !state.inRoom || document.querySelector('dialog[open]')) return;
+    event.preventDefault();
+    const regions = [$('#room-view .topbar'), $('#stage'), $('#console')].filter((r) => r.getClientRects().length);
+    const at = regions.findIndex((r) => r.contains(document.activeElement));
+    const step = event.shiftKey ? -1 : 1;
+    const region = regions[(at < 0 ? 0 : at + step + regions.length) % regions.length];
+    const first = [...region.querySelectorAll('button, input, select, textarea, a[href], [tabindex]')]
+      .find((n) => n.tabIndex >= 0 && !n.disabled && n.getClientRects().length);
+    (first || region).focus();
   });
   $('#suggestion-apply').addEventListener('click', () => {
     if (state.suggestion) applyShareSettings(state.suggestion.settings);

@@ -576,9 +576,21 @@ test('cores prontas: texto legível (4,5:1) e bordas visíveis (3:1) nos dois te
       assert.ok(Theme.contrast(text, accent) >= 4.5, `${preset.name}/${mode}: texto do botão`);
       assert.ok(minRingContrast(ui, mode) >= 3, `${preset.name}/${mode}: borda/foco`);
     }
-    const expected = preset.name === 'Amarelo' ? '#000000' : '#ffffff';
-    assert.equal(Theme.accentVars(preset.color, 'dark')['--accent-text'], expected, `${preset.name}: cor do texto`);
+    assert.equal(Theme.accentVars(preset.color, 'dark')['--accent-text'], '#ffffff', `${preset.name}: cor do texto`);
   }
+});
+
+test('cores prontas não se confundem com as luzes de estado; as que se confundem são apontadas', () => {
+  for (const preset of Theme.PRESETS) assert.equal(Theme.accentConflict(preset.color), null, preset.name);
+  assert.equal(Theme.accentConflict('#15803d'), 'green'); // o antigo "Verde"
+  assert.equal(Theme.accentConflict('#3dd68c'), 'green'); // a luz de "conectado"
+  assert.equal(Theme.accentConflict('#eab308'), 'amber'); // o antigo "Amarelo"
+  assert.equal(Theme.accentConflict('#f5a524'), 'amber'); // a luz de "pausado"
+  assert.equal(Theme.accentConflict('#5b6270'), 'gray'); // o antigo "Grafite"
+  assert.equal(Theme.accentConflict('#ffffff'), 'gray');
+  assert.equal(Theme.accentConflict('#f04f6a'), 'danger'); // o vermelho de erro (escuro)
+  assert.equal(Theme.accentConflict('#c81e4a'), 'danger'); // o vermelho de erro (claro)
+  assert.equal(Theme.accentConflict('nada'), null);
 });
 
 test('qualquer cor escolhida mantém o contraste mínimo (500 cores aleatórias)', () => {
