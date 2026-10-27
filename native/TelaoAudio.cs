@@ -390,6 +390,9 @@ namespace TelaoAudio
         public readonly uint Pid;
         public readonly string Name;
         public readonly long Created;
+        public DateTime StartedAt;
+        public string Error; // por que a captura caiu (null = parou porque pediram)
+        public volatile bool Ended; // a thread terminou: o Program tira da lista e, se ainda for preciso, recomeça
         volatile bool running = true;
 
         public Capture(uint id, ProcInfo info)
@@ -402,6 +405,7 @@ namespace TelaoAudio
 
         public void Start()
         {
+            StartedAt = DateTime.UtcNow;
             var thread = new Thread(Run);
             thread.IsBackground = true;
             thread.Start();
@@ -476,12 +480,15 @@ namespace TelaoAudio
                 {
                     ready.WaitOne(50);
                     uint frames;
-                    while (running && capture.GetNextPacketSize(out frames) == 0 && frames > 0)
+                    int hr = 0;
+                    while (running && (hr = capture.GetNextPacketSize(out frames)) == 0 && frames > 0)
                     {
                         IntPtr data;
                         uint got, flags;
                         ulong devicePosition, qpcPosition;
-                        if (capture.GetBuffer(out data, out got, out flags, out devicePosition, out qpcPosition) != 0) break;
+                        hr = capture.GetBuffer(out data, out got, out flags, out devicePosition, out qpcPosition);
+                        if (hr < 0) break;
+                        if (hr != 0) { hr = 0; break; } // AUDCLNT_S_BUFFER_EMPTY: nada para ler agora
                         var bytes = new byte[got * 4];
                         if ((flags & AUDCLNT_BUFFERFLAGS_SILENT) == 0 && got > 0) Marshal.Copy(data, bytes, 0, bytes.Length);
                         capture.ReleaseBuffer(got);
@@ -492,18 +499,22 @@ namespace TelaoAudio
                             pending.SetLength(0);
                         }
                     }
+                    // Erro na captura (ex.: o dispositivo de som do Windows mudou). Antes a
+                    // thread seguia girando sem som nenhum; agora termina, e o Program recomeça.
+                    if (hr < 0) Marshal.ThrowExceptionForHR(hr);
                 }
                 client.Stop();
                 GC.KeepAlive(ready);
             }
             catch (Exception ex)
             {
-                Output.Event("{\"event\":\"warning\",\"message\":" + Output.Q("Não foi possível capturar o som de " + Name + ": " + ex.Message) + "}");
+                Error = ex.Message;
             }
             finally
             {
                 if (announced) Output.Event("{\"event\":\"source-end\",\"id\":" + Id + "}");
                 if (client != null) Marshal.ReleaseComObject(client);
+                Ended = true;
             }
         }
     }
@@ -518,6 +529,9 @@ namespace TelaoAudio
         static readonly HashSet<uint> ExcludePids = new HashSet<uint>();
         static readonly Dictionary<uint, Capture> Active = new Dictionary<uint, Capture>();
         static readonly HashSet<uint> Reported = new HashSet<uint>();
+        // Capturas que caíram: quantas vezes seguidas e quando tentar de novo.
+        static readonly Dictionary<uint, int> Failures = new Dictionary<uint, int>();
+        static readonly Dictionary<uint, DateTime> RetryAt = new Dictionary<uint, DateTime>();
         static uint nextId = 1;
 
         [MTAThread]
@@ -615,16 +629,34 @@ namespace TelaoAudio
             return ExcludeNames.Contains(info.Name) || ExcludePids.Contains(info.Pid);
         }
 
-        // Processos cuja árvore contém algum excluído (incluí-los capturaria o excluído junto).
-        static HashSet<uint> Tainted(Dictionary<uint, ProcInfo> map)
+        // Processos cuja árvore contém algum excluído (incluí-los capturaria o excluído
+        // junto), cada um com o excluído que está embaixo dele.
+        static Dictionary<uint, ProcInfo> Tainted(Dictionary<uint, ProcInfo> map)
         {
-            var tainted = new HashSet<uint>();
+            var tainted = new Dictionary<uint, ProcInfo>();
             foreach (var info in map.Values)
             {
                 if (!IsExcludedItself(info)) continue;
-                foreach (var pid in Processes.Chain(map, info.Pid)) tainted.Add(pid);
+                foreach (var pid in Processes.Chain(map, info.Pid))
+                    if (!tainted.ContainsKey(pid)) tainted[pid] = info;
             }
             return tainted;
+        }
+
+        // Avisa (uma vez) quem ficou de fora por ter aberto um excluído. O caso comum:
+        // o navegador em que o convite foi clicado abriu o Telão, e no Firefox o som
+        // sai pelo próprio processo do navegador, então capturá-lo levaria o Telão junto.
+        static void ReportTainted(ProcInfo info, ProcInfo inside)
+        {
+            if (inside.Pid == info.Pid) return;
+            ReportExcluded(info, ExcludePids.Contains(inside.Pid) ? "abriu o Telão" : "abriu " + inside.Name);
+        }
+
+        // Alguma captura caiu e precisa recomeçar (ou chegou a hora de tentar de novo)?
+        static bool NeedsSync()
+        {
+            var now = DateTime.UtcNow;
+            return Active.Values.Any(c => c.Ended) || RetryAt.Values.Any(t => t <= now);
         }
 
         static bool InsideExcluded(Dictionary<uint, ProcInfo> map, uint pid, out ProcInfo culprit)
@@ -656,7 +688,7 @@ namespace TelaoAudio
             // todos os processos do PC é a parte cara). Refaz a cada ~10 s mesmo assim.
             var sessions = SessionPids();
             var key = string.Join(",", sessions.OrderBy(p => p));
-            if (key == lastSessions && ++unchangedRounds < 5) return;
+            if (key == lastSessions && !NeedsSync() && ++unchangedRounds < 5) return;
             lastSessions = key;
             unchangedRounds = 0;
 
@@ -677,7 +709,12 @@ namespace TelaoAudio
                     if (ExcludeNames.Contains(culprit.Name)) ReportExcluded(info, culprit == info ? "lista" : "filho de " + culprit.Name);
                     continue;
                 }
-                if (tainted.Contains(pid)) continue; // a árvore dele contém um excluído
+                ProcInfo inside;
+                if (tainted.TryGetValue(pid, out inside)) // a árvore dele contém um excluído
+                {
+                    ReportTainted(info, inside);
+                    continue;
+                }
                 candidates.Add(pid);
             }
             // Um app capturado já inclui os processos filhos: não captura o filho de novo.
@@ -704,7 +741,7 @@ namespace TelaoAudio
                 return;
             }
             var tainted = Tainted(map);
-            if (!tainted.Contains(pid))
+            if (!tainted.ContainsKey(pid))
             {
                 Sync(map, new HashSet<uint> { pid });
                 return;
@@ -723,7 +760,7 @@ namespace TelaoAudio
                     if (ExcludeNames.Contains(culprit.Name)) ReportExcluded(map[s], culprit == map[s] ? "lista" : "filho de " + culprit.Name);
                     continue;
                 }
-                if (tainted.Contains(s)) continue;
+                if (tainted.ContainsKey(s)) continue;
                 candidates.Add(s);
             }
             if (sessions.Contains(pid) && !warnedTarget)
@@ -737,23 +774,48 @@ namespace TelaoAudio
 
         static void Sync(Dictionary<uint, ProcInfo> map, HashSet<uint> wanted)
         {
+            var now = DateTime.UtcNow;
             foreach (var pid in Active.Keys.ToList())
             {
                 var capture = Active[pid];
                 ProcInfo info;
                 bool alive = map.TryGetValue(pid, out info) && info.Created == capture.Created;
-                if (!alive || !wanted.Contains(pid))
+                if (alive && wanted.Contains(pid) && !capture.Ended) continue;
+                capture.Stop();
+                Active.Remove(pid);
+                if (!capture.Ended || capture.Error == null || !alive || !wanted.Contains(pid)) continue;
+                // A captura caiu (ex.: troca do dispositivo de som): tenta de novo em 2 s,
+                // depois 4, 8, 16 e no máximo 30. Uma que rodou mais de 30 s conta do zero.
+                int failures;
+                Failures.TryGetValue(pid, out failures);
+                failures = (now - capture.StartedAt).TotalSeconds > 30 ? 1 : failures + 1;
+                Failures[pid] = failures;
+                RetryAt[pid] = now.AddSeconds(Math.Min(30, 1 << Math.Min(failures, 5)));
+                // A primeira queda volta sozinha sem incomodar; se a nova tentativa também
+                // falhar, avisa (uma vez por sequência de falhas).
+                if (failures == 2)
                 {
-                    capture.Stop();
-                    Active.Remove(pid);
+                    Output.Event("{\"event\":\"warning\",\"message\":" + Output.Q("Não foi possível capturar o som de " + capture.Name + ": " + capture.Error + " Tentando de novo…") + "}");
                 }
             }
             foreach (var pid in wanted)
             {
                 if (Active.ContainsKey(pid)) continue;
+                DateTime retry;
+                if (RetryAt.TryGetValue(pid, out retry))
+                {
+                    if (retry > now) continue;
+                    RetryAt.Remove(pid);
+                }
                 var capture = new Capture(nextId++, map[pid]);
                 Active[pid] = capture;
                 capture.Start();
+            }
+            // Quem saiu da lista não precisa mais de nova tentativa.
+            foreach (var pid in Failures.Keys.Where(p => !wanted.Contains(p)).ToList())
+            {
+                Failures.Remove(pid);
+                RetryAt.Remove(pid);
             }
         }
 

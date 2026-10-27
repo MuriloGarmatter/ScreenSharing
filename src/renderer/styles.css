@@ -496,6 +496,9 @@ details > summary::-webkit-details-marker { display: none; }
   font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: #fff;
 }
 .tile-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--wall-muted); }
+.tile-muted { flex: none; display: inline-grid; color: var(--warn); }
+.tile-muted svg.i { width: 15px; height: 15px; }
+.tile.pinned .tile-muted { color: inherit; }
 .tile-signal { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; flex: none; color: var(--wall-text); }
 
 /* Tally: no ar = acesa; conectando = tracejada; pausada = contorno âmbar. */

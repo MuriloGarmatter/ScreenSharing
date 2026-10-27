@@ -9,6 +9,7 @@ import {
   CAMERA_BITRATE, cameraEncoding, cameraErrorMessage,
 } from '../src/renderer/media.js';
 import { CAMERA_VERSION, supportsCamera } from '../src/renderer/mesh.js';
+import { AppAudioCapture } from '../src/renderer/app-audio.js';
 import {
   PUBLIC_SERVER, deepLinkFor, inviteLink, parseDeepLink, parseInviteText, parseServerAddress,
 } from '../src/renderer/address.js';
@@ -361,6 +362,22 @@ test('câmera: envio do tamanho em que cada um mostra, erros claros, só para ve
   assert.equal(supportsCamera({ state: { version: '1.3.0' } }), false, 'a 1.3 misturaria câmera e tela');
   assert.equal(supportsCamera({ state: {} }), false);
   assert.equal(supportsCamera(undefined), false);
+});
+
+test('som dos apps: avisa quem ficou de fora por ter aberto o Telão', () => {
+  const capture = new AppAudioCapture({});
+  const warnings = [];
+  capture.addEventListener('warning', (e) => warnings.push(e.detail));
+  const event = (data) => capture.handleEvent(capture.session, data);
+  event({ event: 'excluded', pid: 1, name: 'Discord.exe', reason: 'lista' });
+  event({ event: 'excluded', pid: 2, name: 'firefox.exe', reason: 'abriu o Telão' });
+  event({ event: 'excluded', pid: 3, name: 'explorer.exe', reason: 'abriu o Telão' });
+  event({ event: 'excluded', pid: 4, name: 'outro.exe', reason: 'abriu o Telão' });
+  capture.handleEvent('outra-sessão', { event: 'excluded', pid: 5, name: 'chrome.exe', reason: 'abriu o Telão' });
+  assert.equal(warnings.length, 2, 'só firefox e outro (o explorer não toca som, e outra sessão não conta)');
+  assert.match(warnings[0], /O som do firefox fica fora da transmissão porque o Telão foi aberto por ele/);
+  assert.match(warnings[0], /menu Iniciar/);
+  assert.deepEqual(capture.summary().excluded, ['Discord', 'firefox', 'explorer', 'outro']);
 });
 
 test('predefinições de qualidade e H.264 automático', () => {

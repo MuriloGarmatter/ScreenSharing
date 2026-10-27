@@ -831,6 +831,8 @@ function createTile(peer, kind) {
   const name = el('span', { class: 'tile-name' });
   const label = el('span', { class: 'tile-label' });
   const signal = el('span', { class: 'tile-signal' });
+  // Silenciado (por você ou contra eco) fica à vista na faixa, mesmo com a barra escondida.
+  const muteBadge = camera ? null : el('span', { class: 'tile-muted', role: 'img', hidden: true, html: icon('volume-x') });
   const waitText = el('span', {}, 'Conectando à transmissão…');
   const stats = camera ? null : el('div', { class: 'tile-stats', hidden: true }, 'Aguardando dados…');
   const pausedText = el('span');
@@ -866,11 +868,11 @@ function createTile(peer, kind) {
       stats,
       reactionBar,
       el('div', { class: 'tile-bar' }, muteBtn, volume, el('span', { class: 'spacer' }), pinBtn, watchBtn, pipBtn, infoBtn, fullBtn)),
-    el('div', { class: 'umd' }, el('span', { class: 'tally', 'aria-hidden': 'true' }), name, label, signal));
+    el('div', { class: 'umd' }, el('span', { class: 'tally', 'aria-hidden': 'true' }), name, label, muteBadge, signal));
 
   const tile = {
     key, peerId: peer.id, kind, root, video, name, label, signal, waitText, stats, pausedText, watchBtn, reactions,
-    muteBtn, volume, pinBtn, pipBtn,
+    muteBtn, muteBadge, volume, pinBtn, pipBtn,
     userMuted: false, peerName: peer.name, trackSig: '',
     watching: true, // false = parou de assistir: nada chega e o monitor sai do palco
   };
@@ -1232,6 +1234,14 @@ function applyAudioRouting() {
       ? 'Silenciado para evitar eco enquanto você transmite com som (dá para mudar no painel)'
       : (tile.userMuted ? 'Ativar som' : 'Silenciar');
     tile.muteBtn.setAttribute('aria-label', tile.muteBtn.title);
+    // Na faixa: por que essa pessoa não está sendo ouvida (o volume fica lembrado pelo nome).
+    let why = '';
+    if (tile.watching && echoGuard) why = 'Som silenciado para evitar eco enquanto você transmite com som (dá para mudar no painel)';
+    else if (tile.watching && tile.userMuted) why = `Você silenciou ${tile.peerName}: passe o mouse na tela e clique no alto-falante`;
+    else if (tile.watching && tile.video.volume === 0) why = `O volume de ${tile.peerName} está no zero`;
+    tile.muteBadge.hidden = !why;
+    tile.muteBadge.title = why;
+    tile.muteBadge.setAttribute('aria-label', why || 'som ligado');
   }
 }
 

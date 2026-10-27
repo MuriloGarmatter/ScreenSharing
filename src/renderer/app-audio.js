@@ -73,6 +73,14 @@ export class AppAudioCapture extends EventTarget {
       }
       case 'excluded':
         this.excluded.set(event.pid, event.name);
+        // Ficou de fora por ter aberto o Telão (o convite foi clicado nele, e o som
+        // dele levaria o Telão junto): explica como incluir. O Windows (explorer)
+        // também "abre" o Telão, mas não toca som de verdade.
+        if (event.reason === 'abriu o Telão' && !/^(explorer|svchost|sihost|runtimebroker)\.exe$/i.test(event.name)) {
+          this.dispatchEvent(new CustomEvent('warning', {
+            detail: `O som do ${exeLabel(event.name)} fica fora da transmissão porque o Telão foi aberto por ele (pelo convite). Para incluir, feche o Telão e abra de novo pelo menu Iniciar.`,
+          }));
+        }
         break;
       case 'warning':
         this.dispatchEvent(new CustomEvent('warning', { detail: event.message }));

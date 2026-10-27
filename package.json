@@ -1,7 +1,7 @@
 {
   "name": "telao",
   "productName": "Telao",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "private": true,
   "description": "Compartilhamento de tela P2P com som, escolha de tela, resolução, FPS e bitrate.",
   "author": "Telao",
