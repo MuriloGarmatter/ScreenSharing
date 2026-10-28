@@ -17,6 +17,9 @@ O som do **Discord não vai junto**, então ninguém ouve a própria voz de volt
 </div>
 
 > [!IMPORTANT]
+> - **Pelo iPhone, Android ou Mac:** abra o link do convite e toque em **Entrar pelo navegador**.
+>   Dá para assistir, ouvir, conversar e ligar a câmera, sem instalar nada
+>   ([veja como](#-pelo-iphone-android-ou-mac-navegador)).
 > - **Dá para conversar pelo próprio Telão** (a partir da 1.5): ligue o microfone no painel **Voz**.
 >   Quem preferir pode continuar numa chamada do Discord ao mesmo tempo: o som dessa chamada não
 >   entra na transmissão.
@@ -39,6 +42,7 @@ O som do **Discord não vai junto**, então ninguém ouve a própria voz de volt
   - [5. Ligar a câmera](#5-ligar-a-câmera)
   - [6. Conversar por voz](#6-conversar-por-voz)
   - [7. Avisos, bandeja e cores](#7-avisos-bandeja-e-cores)
+- [Pelo iPhone, Android ou Mac (navegador)](#-pelo-iphone-android-ou-mac-navegador)
 - [Atalhos de teclado](#-atalhos-de-teclado)
 - [Som: como o Discord fica de fora](#-som-como-o-discord-fica-de-fora)
 - [Qualidade, FPS e internet](#-qualidade-fps-e-internet)
@@ -93,6 +97,8 @@ A "sala" só serve para os computadores se encontrarem. Depois disso, a imagem e
 
 - **Windows 10 ou Windows 11, 64 bits.** O filtro que tira o som do Discord precisa do Windows 10
   versão 2004 (de 2020) ou mais nova. Para ver sua versão, aperte `Win + R`, digite `winver` e dê Enter.
+  Para assistir e conversar, também serve um **iPhone, Android ou Mac**, pelo navegador
+  ([veja como](#-pelo-iphone-android-ou-mac-navegador)).
 - **Internet.** Para assistir, qualquer uma serve. Para **transmitir**, o que importa é o **upload**,
   a velocidade de **envio** da sua internet, que costuma ser bem menor que a de download
   ([veja a tabela](#quanto-de-internet-a-transmissão-usa)).
@@ -454,6 +460,43 @@ ligado, e um somzinho confirma (útil com o jogo na frente).
   as luzes de estado (conectado, pausado, apagado, erro). Dá para escolher em **Outra cor…**, e o app
   avisa. O app ajusta a cor do texto sozinho para continuar legível. **Restaurar tema e cor** volta
   para tema escuro com vermelho.
+
+---
+
+## 📱 Pelo iPhone, Android ou Mac (navegador)
+
+Quem não tem Windows (ou está longe do PC) entra pelo navegador, sem instalar nada:
+
+1. Abra o **link do convite** (o mesmo de sempre, como `https://telao.xmbc.workers.dev/filme-sexta`).
+2. Toque em **Entrar pelo navegador**.
+3. Digite seu nome e toque em **Entrar na sala**.
+
+Pelo navegador dá para:
+
+- **Assistir** às telas e **ouvir** o som delas, com o volume de cada uma.
+- **Conversar** (microfone, com os mesmos ajustes) e **ligar a câmera**.
+- **Reagir** (😂 🔥 👏…), destacar uma tela e parar de assistir.
+- Num **navegador de computador** (Mac, Linux, Chromebook), também **transmitir a tela**: o navegador
+  pergunta o que transmitir. O som vai junto quando o navegador oferece (no Chrome, marque
+  **Compartilhar áudio**). O filtro que tira o Discord do som é só do app do Windows.
+
+No celular em pé, a tela fica em cima e a lista embaixo; deitado, só a tela. Toque na imagem para
+ver os controles; a tela cheia é pelo botão ⛶.
+
+**Para virar um "app" no iPhone:** no Safari, toque em **Compartilhar → Adicionar à Tela de Início**.
+O ícone abre o Telão sem a barra do navegador, já na sala da turma (no Android, é **Adicionar à tela
+inicial** no menu do Chrome).
+
+O que muda no celular:
+
+- **No iPhone e no Android não dá para transmitir a tela** pelo navegador: o sistema não deixa.
+- Se aparecer **Toque para ouvir**, toque: o iPhone só toca som depois de um toque na página.
+- **Bloqueou a tela ou trocou de app, a imagem e o som param** (o iPhone pausa sites em segundo
+  plano). Ao voltar, o Telão continua.
+- Com o **microfone ligado**, o iPhone às vezes baixa o volume ou muda a saída do som. Use fone.
+- Na **internet do celular (4G/5G)**, assistir gasta uns **0,5 a 1,5 GB por hora**.
+- Não há atalhos de teclado nem bandeja (são do app do Windows), e a sala criada pelo navegador fica
+  sempre no Servidor do Telão (link fixo).
 
 ---
 
@@ -965,10 +1008,12 @@ flowchart TB
 src/main/          processo principal (janela, captura, servidor embutido, túnel, som por app,
                    aparência, bandeja, atalhos, links telao://)
 src/renderer/      interface e WebRTC (app.js, mesh.js, media.js, stats.js, address.js, theme.js,
-                   sounds.js, app-audio.js, pcm-worklet.js)
+                   sounds.js, app-audio.js, pcm-worklet.js); a mesma roda no navegador
+src/web/           ponte do Telão no navegador (bridge.js, no lugar do preload do Electron)
 server/            servidor de sinalização e página do convite (embutidos no app ou sozinhos);
                    protocol.js é a parte dividida com o worker/
-worker/            o mesmo servidor na Cloudflare (Workers + Durable Objects): o link fixo
+worker/            o mesmo servidor na Cloudflare (Workers + Durable Objects): o link fixo e o
+                   Telão no navegador (worker/public/app/, gerado por scripts/build-web.js)
 native/            código do telao-audio.exe
 scripts/           ícones, compilação do auxiliar, inicialização
 test/              testes (unitários, áudio, ponta a ponta)
@@ -987,6 +1032,15 @@ e o app aponta para ele em `PUBLIC_SERVER` (`src/renderer/address.js`).
   `"pong"` sem acordar o objeto. Um alarme por minuto tira da sala quem parou de mandar há mais de
   90 s (Wi-Fi caiu, PC hibernou). Versões sem o ping (até a 1.2) não são tiradas assim.
 - Nada é gravado e não há logs.
+- **Telão no navegador:** o Worker também serve, em `/app/`, a mesma interface do app
+  (`src/renderer`) com a ponte `src/web/bridge.js` no lugar do preload do Electron: o que é do
+  Windows (bandeja, atalhos globais, som por app, hospedar no PC, atualização) some, e o resto usa o
+  equivalente do navegador. `scripts/build-web.js` monta tudo em `worker/public/app/` (gerado, fora
+  do Git); o wrangler roda esse script antes de cada deploy e do `npm run dev`. No navegador, o som
+  das telas passa pelo Web Audio (o vídeo fica mudo), porque no iPhone o volume do vídeo não muda por
+  script e o Web Audio, liberado no toque de **Entrar**, toca sem pedir outro toque. A página do
+  convite ganha **Entrar pelo navegador** (`/app/?sala=nome`), que vira o botão principal fora do
+  Windows (lá o link `telao://` nem é tentado).
 
 Publicar uma versão nova do servidor:
 

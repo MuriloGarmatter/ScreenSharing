@@ -104,7 +104,7 @@
 
       <div id="host-fields" class="mode-fields" hidden>
         <!-- O campo Sala entra aqui, antes de "Onde fica a sala". -->
-        <div class="field">
+        <div class="field" id="host-where-field">
           <span class="field-label" id="host-where-label">Onde fica a sala</span>
           <div class="segmented" role="radiogroup" aria-labelledby="host-where-label" aria-describedby="host-where-desc">
             <input type="radio" name="host-where" id="host-cloud" value="cloud" checked>
@@ -180,6 +180,8 @@
 
     <!-- F6 pula entre a barra do alto, o palco e o painel (ver o app.js). -->
     <section id="stage" class="stage" tabindex="-1" aria-label="Telas">
+      <!-- No iPhone o som só sai depois de um toque na página: esta tecla pede o toque. -->
+      <button type="button" id="audio-unlock" class="btn primary audio-unlock" hidden><span data-icon="volume"></span>Toque para ouvir</button>
       <!-- Ninguém no ar: um monitor do multivisor sem sinal. -->
       <div id="empty-stage" class="empty">
         <div class="empty-screen">
@@ -247,7 +249,7 @@
             <label class="check"><input type="checkbox" id="voice-noise"><span>Redução de ruído <em>(ventilador, teclado, barulho de fundo)</em></span></label>
             <label class="check"><input type="checkbox" id="voice-echo"><span>Cancelamento de eco <em>(desligue só se usar fone)</em></span></label>
             <label class="check"><input type="checkbox" id="voice-gain"><span>Ganho automático <em>(deixa a voz sempre no mesmo volume)</em></span></label>
-            <p class="hint">Use fone de ouvido para não dar eco. <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>M</kbd> liga e desliga o microfone, até com o jogo aberto.</p>
+            <p class="hint">Use fone de ouvido para não dar eco.<span class="desktop-only"> <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>M</kbd> liga e desliga o microfone, até com o jogo aberto.</span></p>
           </div>
         </details>
       </section>
@@ -336,7 +338,7 @@
         <p id="invite-hint" class="hint"></p>
       </section>
 
-      <section class="panel panel-foot" id="shortcuts-panel">
+      <section class="panel panel-foot desktop-only" id="shortcuts-panel">
         <details class="advanced" id="shortcuts">
           <summary>Atalhos do teclado</summary>
           <div class="advanced-body">

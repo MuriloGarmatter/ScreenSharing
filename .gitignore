@@ -4,3 +4,4 @@ resources/
 server/node_modules/
 .impeccable/
 .wrangler/
+worker/public/

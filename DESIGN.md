@@ -420,6 +420,19 @@ Participants and per-viewer outgoing stats are rows separated by 1px hairlines, 
 ### Share panel
 Off air, "Sua transmissão" is one hint line summarising the current quality. The format keys and "Ajustes finos" (which also holds the bitrate note, capped at 72ch) live in the source picker, in a "Qualidade" row above its actions (four format keys across, three setting columns). On air the panel is compact: output preview, sound meter, Pausar / Trocar tela / Parar, then a one-line disclosure "Qualidade: Filme · 1080p · 30 fps" that opens the same keys as rows. The keys are one set of nodes that moves into the picker while it is open and back into that disclosure.
 
+### Phone and browser (Telão no navegador)
+The same renderer runs in the browser at `/app/` (iPhone, Android, Mac); `src/web/bridge.js` adds `.web`, `.ios` and `.mobile` to `<html>`. Rules:
+- **Hidden in the browser:** `.desktop-only` (global shortcuts, their hints). The picker's tabs are hidden too, because the browser shows its own source list.
+- **On iPhone and Android:** no screen sharing, so the share key, the NO AR housing and "Sua transmissão" are hidden.
+- **Portrait phone (≤760px):**
+  - Join: only the join card (the slate is hidden).
+  - Room: a single column, the stage on top at the height of one 16:9 picture (`max(300px, 56.25vw + 46px)`) and the console below, scrolling. No console toggle, no separator.
+  - Toasts: stacked full width at the bottom.
+- **Landscape phone (≤960×520):** only the stage; the console returns in portrait.
+- **Coarse pointers:** fields at 16px (iOS zooms below that), 40px keys over video, a tap shows the controls (it never pins), and fullscreen goes through the ⛶ key (`webkitEnterFullscreen` on iPhone).
+- **"Toque para ouvir":** a strong key centred at the top of the stage. It appears only when the browser holds the room's audio until a tap (auto-join from a link, iOS suspension, Low Power Mode).
+- **Invite page:** "Entrar pelo navegador" is the strong key outside Windows, and there the `telao://` launch is not attempted.
+
 ### Window, tray and Ajustes
 In a room, the window's X hides Telão in the tray (like Discord) instead of quitting; the first time, a tray balloon says where it went. Outside a room, X quits. "Sair do Telão" in the tray quits at once, unless you are on air or hosting with people in the room: then the window comes forward and asks ("Fechar o Telão?"). The "Ajustes" key (a sliders glyph, on the start screen and in the room) opens one dialog with Sons (the warning-sounds checkbox, which used to be a bell key in the top bar), Tema and Cor de destaque. F6 and Shift+F6 move between the three room regions: top bar, stage and console.
 

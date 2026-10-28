@@ -16,11 +16,20 @@ const TONES = {
 
 let context = null;
 
+/** No navegador (iPhone), o som só sai se for "acordado" num toque: chame dentro de um. */
+export function primeSounds() {
+  try {
+    context ||= new AudioContext();
+    if (context.state !== 'running') context.resume().catch(() => {});
+  } catch { /* sem saída de áudio */ }
+}
+
 export function playSound(kind) {
   const notes = TONES[kind];
   if (!notes) return;
   try {
     context ||= new AudioContext();
+    if (context.state === 'suspended') context.resume().catch(() => {});
     const now = context.currentTime + 0.01;
     for (const [frequency, offset] of notes) {
       const osc = context.createOscillator();

@@ -10,7 +10,7 @@ import {
 } from './media.js';
 import { bestColumns } from './layout.js';
 import { outdatedPeers } from './version.js';
-import { playSound } from './sounds.js';
+import { playSound, primeSounds } from './sounds.js';
 import {
   LIMITATION_TEXT, SIGNAL_TEXT, StatsTracker, describeRoute, hardwareLabel, levelFrom, limitReason, peerSignal,
 } from './stats.js';
@@ -138,6 +138,45 @@ function chime(kind) {
   if (prefs.sounds !== false) playSound(kind);
 }
 
+// ---------- No navegador (iPhone, Android, Mac) ----------
+// O mesmo app roda no navegador (ver src/web/bridge.js): o que é do Windows some
+// (atalhos globais, bandeja, hospedar no PC, som por app) e o resto se ajusta.
+
+const isWeb = () => state.info.web === true;
+/** Dá para transmitir a tela aqui? No iPhone e no Android, o navegador não deixa. */
+const canShareScreen = () => !isWeb() || state.info.canShareScreen === true;
+/** O atalho no fim de uma dica, " (Ctrl+Alt+M)": só no app do Windows, onde ele existe. */
+const keyHint = (combo) => (isWeb() ? '' : ` (${combo})`);
+
+/** O som da sala (vozes e, no navegador, também as telas) toca neste AudioContext. */
+function roomAudio() {
+  state.voiceCtx ||= new AudioContext({ latencyHint: 'interactive' });
+  return state.voiceCtx;
+}
+
+/**
+ * No iPhone o som só sai depois de um toque na página. Entrar na sala (um toque)
+ * já libera; se a página entrou sozinha pelo convite, ou o iPhone suspendeu o som,
+ * uma tecla pede o toque (ver unlockAudio).
+ */
+function checkAudioRunning() {
+  const ctx = state.voiceCtx;
+  if (!ctx) return;
+  ctx.resume().catch(() => {});
+  setTimeout(() => {
+    if (state.voiceCtx === ctx && state.inRoom && ctx.state !== 'running') $('#audio-unlock').hidden = false;
+  }, 600);
+}
+
+function unlockAudio() {
+  $('#audio-unlock').hidden = true;
+  primeSounds();
+  roomAudio().resume().catch(() => {});
+  for (const tile of state.tiles.values()) tile.video.play().catch(() => {});
+  for (const voice of state.voices.values()) voice.audio.play().catch(() => {});
+  applyAudioRouting();
+}
+
 // ---------- Tela de entrada ----------
 
 function restoreJoinForm() {
@@ -160,7 +199,8 @@ function currentMode() {
 }
 
 function currentHostWhere() {
-  return $('#host-pc').checked ? 'pc' : 'cloud';
+  // No navegador, a sala é sempre no servidor do Telão (hospedar no PC é do app do Windows).
+  return !isWeb() && $('#host-pc').checked ? 'pc' : 'cloud';
 }
 
 function syncModeFields() {
@@ -258,6 +298,13 @@ async function onJoin(event) {
   event.preventDefault();
   if (state.joining) return;
   $('#join-error').hidden = true;
+  // No navegador, o toque em "Entrar" é o que libera o som (o iPhone exige um toque).
+  // Entrando sozinha pelo link do convite (requestSubmit), não há toque: aí a tecla
+  // "Toque para ouvir" aparece quando o som chegar (ver checkAudioRunning).
+  if (isWeb() && navigator.userActivation?.isActive !== false) {
+    roomAudio().resume().catch(() => {});
+    primeSounds();
+  }
   const mode = currentMode();
   const address = mode === 'join' ? parseServerAddress($('#server-url').value) : null;
   if (address?.room) $('#room').value = address.room; // o convite manda na sala
@@ -531,7 +578,7 @@ function enterRoom() {
   if (prefs.micOn) {
     startMic().then((on) => {
       if (!on || !state.inRoom) return;
-      toast('Microfone ligado, como da última vez. Ctrl+Alt+M desliga.', 'info', 7000);
+      toast(isWeb() ? 'Microfone ligado, como da última vez.' : 'Microfone ligado, como da última vez. Ctrl+Alt+M desliga.', 'info', 7000);
       chime('mic-on');
     });
   }
@@ -561,6 +608,7 @@ async function leaveRoom(force = false) {
   for (const id of [...state.voices.keys()]) removeVoice(id);
   state.voiceCtx?.close().catch(() => {});
   state.voiceCtx = null;
+  $('#audio-unlock').hidden = true;
   state.starting = null; // uma transmissão começando agora não vai para a próxima sala
   const mesh = state.mesh;
   state.mesh = null;
@@ -994,7 +1042,8 @@ const CONTROLS_IDLE_MS = 2500; // mouse parado em cima da imagem: os controles s
 function rememberVolume(tile) {
   const volumes = { ...(prefs.volumes || {}) };
   delete volumes[tile.peerName];
-  volumes[tile.peerName] = { volume: tile.video.volume, muted: tile.userMuted };
+  // O valor da barra (no iPhone, o volume do vídeo não muda: o som vai pelo Web Audio).
+  volumes[tile.peerName] = { volume: Number(tile.volume.value), muted: tile.userMuted };
   const names = Object.keys(volumes);
   for (const old of names.slice(0, Math.max(0, names.length - 50))) delete volumes[old];
   prefs.volumes = volumes;
@@ -1031,7 +1080,9 @@ function setupControls(tile) {
   };
   root.addEventListener('pointermove', show);
   root.addEventListener('pointerdown', show);
-  root.addEventListener('pointerleave', () => {
+  root.addEventListener('pointerleave', (event) => {
+    // No toque, o dedo "sai" ao soltar: os controles ficam até o tempo acabar.
+    if (event.pointerType === 'touch') return;
     clearTimeout(timer);
     root.classList.remove('show-controls', 'idle');
   });
@@ -1123,7 +1174,7 @@ function createTile(peer, kind) {
     showVolume();
     volume.addEventListener('input', () => {
       video.volume = Number(volume.value);
-      if (video.volume > 0) tile.userMuted = false;
+      if (Number(volume.value) > 0) tile.userMuted = false;
       showVolume();
       rememberVolume(tile);
       applyAudioRouting();
@@ -1155,11 +1206,15 @@ function createTile(peer, kind) {
   });
   const toggleFullscreen = () => {
     if (document.fullscreenElement === root) document.exitFullscreen();
-    else root.requestFullscreen().catch(() => {});
+    else if (document.fullscreenEnabled) root.requestFullscreen().catch(() => {});
+    // iPhone: só o próprio vídeo vai para a tela cheia (do jeito do iOS).
+    else video.webkitEnterFullscreen?.();
   };
   fullBtn.addEventListener('click', toggleFullscreen);
   // Clicar numa imagem a destaca (o 📌 desfaz); dois cliques abrem a tela cheia.
   video.addEventListener('click', () => {
+    // No toque, tocar na imagem só mostra os controles (destacar fica no 📌).
+    if (matchMedia('(pointer: coarse)').matches) return;
     if (watchedTiles().length < 2 || state.pinned === key) return;
     state.pinned = key;
     layoutTiles();
@@ -1242,8 +1297,34 @@ function syncOneTile(peer, kind, on, stream) {
     tile.trackSig = sig;
     tile.video.srcObject = null;
     tile.video.srcObject = stream;
-    tile.video.play().catch(() => {});
+    syncTileAudio(tile, stream);
+    tile.video.play().catch((err) => {
+      // Modo de economia do iPhone barra até vídeo mudo: um toque libera.
+      if (err?.name === 'NotAllowedError') $('#audio-unlock').hidden = false;
+    });
   }
+}
+
+/**
+ * No navegador, o som de uma tela vai pelo Web Audio (vídeo mudo + ganho): no
+ * iPhone o volume do vídeo não muda por script, e o som do Web Audio, liberado no
+ * toque de "Entrar", toca sem pedir outro toque. No app do Windows, o vídeo toca o som.
+ */
+function syncTileAudio(tile, stream) {
+  if (!isWeb() || tile.kind !== 'screen') return;
+  tile.video.muted = true;
+  tile.audioSource?.disconnect();
+  tile.audioSource = null;
+  if (!stream.getAudioTracks().length) return;
+  const ctx = roomAudio();
+  if (!tile.gain) {
+    tile.gain = ctx.createGain();
+    tile.gain.connect(ctx.destination);
+  }
+  tile.audioSource = ctx.createMediaStreamSource(stream);
+  tile.audioSource.connect(tile.gain);
+  applyAudioRouting();
+  checkAudioRunning();
 }
 
 function removeTile(key, relayout = true) {
@@ -1252,6 +1333,8 @@ function removeTile(key, relayout = true) {
   if (document.fullscreenElement === tile.root) document.exitFullscreen().catch(() => {});
   if (document.pictureInPictureElement === tile.video) document.exitPictureInPicture().catch(() => {});
   state.resizeObserver?.unobserve(tile.video);
+  tile.audioSource?.disconnect();
+  tile.gain?.disconnect();
   tile.video.srcObject = null;
   tile.root.remove();
   state.tiles.delete(key);
@@ -1544,8 +1627,10 @@ function applyAudioRouting() {
     // Parou de assistir: silencia aqui também (quem transmite numa versão antiga
     // não entende o pedido e continuaria mandando o som).
     const muted = tile.userMuted || echoGuard || !tile.watching;
-    tile.video.muted = muted;
-    tile.muteBtn.innerHTML = icon(muted || tile.video.volume === 0 ? 'volume-x' : 'volume');
+    const volume = Number(tile.volume.value);
+    if (tile.gain) tile.gain.gain.value = muted ? 0 : volume; // no navegador, o som vai pelo Web Audio
+    tile.video.muted = muted || isWeb();
+    tile.muteBtn.innerHTML = icon(muted || volume === 0 ? 'volume-x' : 'volume');
     tile.muteBtn.classList.toggle('active', muted);
     tile.muteBtn.title = echoGuard
       ? 'Silenciado para evitar eco enquanto você transmite com som (dá para mudar no painel)'
@@ -1555,7 +1640,7 @@ function applyAudioRouting() {
     let why = '';
     if (tile.watching && echoGuard) why = 'Som silenciado para evitar eco enquanto você transmite com som (dá para mudar no painel)';
     else if (tile.watching && tile.userMuted) why = `Você silenciou ${tile.peerName}: passe o mouse na tela e clique no alto-falante`;
-    else if (tile.watching && tile.video.volume === 0) why = `O volume de ${tile.peerName} está no zero`;
+    else if (tile.watching && volume === 0) why = `O volume de ${tile.peerName} está no zero`;
     tile.muteBadge.hidden = !why;
     tile.muteBadge.title = why;
     tile.muteBadge.setAttribute('aria-label', why || 'som ligado');
@@ -1899,7 +1984,7 @@ function renderShareUi() {
   onAir.setAttribute('aria-disabled', String(!sharing));
   onAir.tabIndex = sharing ? 0 : -1; // fora do ar, não é uma parada do Tab
   const action = paused ? 'Retomar' : 'Pausar';
-  onAir.title = sharing ? `${action} a transmissão (Ctrl+Alt+P)` : 'Você não está transmitindo';
+  onAir.title = sharing ? `${action} a transmissão${keyHint('Ctrl+Alt+P')}` : 'Você não está transmitindo';
   onAir.setAttribute('aria-label', sharing ? `${paused ? 'Pausado' : 'No ar'}. ${action} a transmissão` : 'Fora do ar');
   $('#on-air-lamp').textContent = paused ? 'Pausado' : 'No ar';
   $('#on-air-lamp').dataset.hover = action;
@@ -1911,7 +1996,9 @@ function renderShareUi() {
   else $('#on-air-time').textContent = '--:--:--';
   $('#anti-echo-row').hidden = state.info.appAudio && state.share?.audioMode !== 'system';
   $('#pause-btn').innerHTML = `${icon(paused ? 'play' : 'pause')}${paused ? 'Retomar' : 'Pausar'}`;
-  $('#pause-btn').title = `${paused ? 'Retomar' : 'Pausar'} a transmissão (Ctrl+Alt+P)`;
+  $('#pause-btn').title = `${paused ? 'Retomar' : 'Pausar'} a transmissão${keyHint('Ctrl+Alt+P')}`;
+  // No iPhone e no Android não dá para transmitir a tela: sem a tecla, a lâmpada e o painel.
+  for (const id of ['#share-btn', '#on-air', '#share-panel']) $(id).hidden = !canShareScreen();
   $('#preview-paused').hidden = !paused;
   const preview = $('#local-preview');
   if (sharing) {
@@ -1966,7 +2053,7 @@ function renderShareAudio() {
     text = `${what}: ${capturing.length ? capturing.join(', ') : nobody}.`;
     if (excluded.length) text += ` Fora da transmissão: ${excluded.join(', ')}.`;
   } else {
-    text = 'Som de todo o computador, sem filtro (inclui chamadas de voz).';
+    text = isWeb() ? 'Som escolhido na janela do navegador.' : 'Som de todo o computador, sem filtro (inclui chamadas de voz).';
   }
   $('#share-audio-text').textContent = text;
 }
@@ -1978,7 +2065,9 @@ function updateMeter() {
 }
 
 async function captureSource(sourceId, settings, withAudio) {
-  await api.selectSource(sourceId, withAudio);
+  // No navegador, a lista do que transmitir é a dele; e o pedido tem de sair direto do
+  // clique (sem esperar nada antes), senão o navegador recusa.
+  if (!isWeb()) await api.selectSource(sourceId, withAudio);
   try {
     return await navigator.mediaDevices.getDisplayMedia({
       video: videoConstraints(settings),
@@ -1987,6 +2076,7 @@ async function captureSource(sourceId, settings, withAudio) {
   } catch (err) {
     if (!withAudio) throw err;
     console.warn('Captura com som falhou; tentando sem som.', err);
+    if (isWeb()) throw err; // no navegador, recusar é recusar (não pergunta de novo)
     await api.selectSource(sourceId, false);
     return navigator.mediaDevices.getDisplayMedia({ video: videoConstraints(settings), audio: false });
   }
@@ -2039,8 +2129,13 @@ async function beginShare(source, audioEnabled, stillWanted) {
   try {
     stream = await captureSource(source.id, settings, mode === 'system');
   } catch (err) {
-    if (stillWanted()) toast(`Não foi possível capturar: ${cleanError(err)}`, 'error', 8000);
+    if (stillWanted() && err?.name !== 'NotAllowedError') toast(`Não foi possível capturar: ${cleanError(err)}`, 'error', 8000);
     return false;
+  }
+  if (isWeb()) {
+    // O nome do que foi escolhido na lista do navegador.
+    const surface = stream.getVideoTracks()[0]?.getSettings().displaySurface;
+    source = { ...source, name: { monitor: 'Tela inteira', window: 'Janela', browser: 'Aba do navegador' }[surface] || 'Tela' };
   }
 
   let appAudio = null;
@@ -2325,9 +2420,8 @@ const VOICE_MAX_VOLUME = 2; // dá para aumentar a voz de alguém até 200%, com
  */
 function syncVoice(peer) {
   if (!state.mesh || !peer.voiceStream.getAudioTracks().length) return;
-  state.voiceCtx ||= new AudioContext({ latencyHint: 'interactive' });
-  const ctx = state.voiceCtx;
-  ctx.resume().catch(() => {});
+  const ctx = roomAudio();
+  checkAudioRunning();
   let voice = state.voices.get(peer.id);
   if (!voice) {
     const audio = el('audio', { autoplay: true });
@@ -2433,7 +2527,7 @@ function renderVoiceUi() {
   btn.setAttribute('aria-pressed', String(on));
   btn.disabled = state.micStarting;
   btn.innerHTML = icon(on ? 'mic' : 'mic-off');
-  btn.title = on ? 'Desligar o microfone (Ctrl+Alt+M)' : 'Ligar o microfone (Ctrl+Alt+M)';
+  btn.title = `${on ? 'Desligar' : 'Ligar'} o microfone${keyHint('Ctrl+Alt+M')}`;
   const key = $('#mic-key');
   key.setAttribute('aria-pressed', String(on));
   key.disabled = state.micStarting;
@@ -2443,7 +2537,7 @@ function renderVoiceUi() {
   const deaf = $('#deafen-key');
   deaf.setAttribute('aria-pressed', String(state.deafened));
   deaf.innerHTML = `${icon(state.deafened ? 'headphones-off' : 'headphones')}Silenciar vozes`;
-  deaf.title = state.deafened ? 'Voltar a ouvir as vozes (Ctrl+Alt+D)' : 'Não ouvir ninguém; o seu microfone desliga junto (Ctrl+Alt+D)';
+  deaf.title = state.deafened ? `Voltar a ouvir as vozes${keyHint('Ctrl+Alt+D')}` : `Não ouvir ninguém; o seu microfone desliga junto${keyHint('Ctrl+Alt+D')}`;
   $('#mic-meter-row').hidden = !on;
   $('#mic-meter-off').hidden = on;
   $('#mic-device-field').hidden = true;
@@ -2770,7 +2864,11 @@ function syncAudioControls() {
   pickPanel.hidden = !picking;
 
   const hint = $('#audio-hint');
-  if (!state.info.systemAudio) hint.textContent = 'O som do computador só pode ser transmitido no Windows.';
+  if (isWeb()) {
+    hint.textContent = enabled
+      ? 'O navegador pergunta o que transmitir. Para ir com som, marque a opção de compartilhar o áudio na janela dele.'
+      : 'A transmissão vai sem som.';
+  } else if (!state.info.systemAudio) hint.textContent = 'O som do computador só pode ser transmitido no Windows.';
   else if (!enabled) hint.textContent = 'A transmissão vai sem som.';
   else if (!state.info.appAudio) hint.textContent = 'Inclui todo o som do PC. O som dos outros participantes fica mudo enquanto você transmite, para evitar eco.';
   else if (select.value === 'app') hint.textContent = `Só o som de "${source.name}". Discord e os outros apps excluídos ficam de fora.`;
@@ -3044,6 +3142,11 @@ async function init() {
     document.documentElement.classList.add('caption-fallback');
   }
   $('#slate-version').textContent = state.info.version ? `v${state.info.version}` : '';
+  if (isWeb()) {
+    // No navegador, a sala é no servidor do Telão: "Onde fica a sala" não tem escolha.
+    $('#host-cloud').checked = true;
+    $('#host-where-field').hidden = true;
+  }
   applyConsole();
   restoreJoinForm();
   setupQualityControls();
@@ -3083,6 +3186,7 @@ async function init() {
   $('#stop-btn').addEventListener('click', () => stopShare());
   $('#pause-btn').addEventListener('click', togglePause);
   $('#on-air').addEventListener('click', () => { if (state.share) togglePause(); });
+  $('#audio-unlock').addEventListener('click', unlockAudio);
   $('#empty-invite-copy').addEventListener('click', () => {
     const link = mainInvite();
     if (link) copyInvite(link);
@@ -3163,6 +3267,8 @@ async function init() {
     state.hiddenLong = false;
     syncViews();
     updateClock();
+    // O iPhone suspende o som quando a página some: volta (ou pede um toque).
+    if (state.inRoom && isWeb()) checkAudioRunning();
     if (state.inRoom) {
       renderParticipants();
       renderOutgoing();

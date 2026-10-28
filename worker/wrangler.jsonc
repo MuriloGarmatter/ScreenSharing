@@ -10,6 +10,12 @@
   // continuam lá depois de cada deploy.
   "keep_vars": true,
   "preview_urls": false,
+  // O Telão no navegador (iPhone, Android, Mac): a mesma interface do app, montada
+  // por scripts/build-web.js em public/app/ antes de cada deploy (e no "wrangler dev").
+  // Os arquivos são servidos pela Cloudflare em /app/; o resto (convites e a sala)
+  // continua com o código do worker.
+  "build": { "command": "node ../scripts/build-web.js" },
+  "assets": { "directory": "./public" },
   "durable_objects": {
     "bindings": [{ "name": "LOBBY", "class_name": "Lobby" }]
   },

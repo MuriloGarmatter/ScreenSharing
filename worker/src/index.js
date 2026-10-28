@@ -161,11 +161,13 @@ export default {
       return lobby.fetch(request);
     }
     const url = new URL(request.url);
+    // O Telão no navegador (public/app/) é servido pela Cloudflare antes de chegar aqui.
     const { status, headers, body } = httpResponse({
       method: request.method,
       url: request.url,
       host: url.host,
       scheme: url.protocol === 'https:' ? 'https' : 'http',
+      webApp: '/app/',
     });
     return new Response(body, { status, headers });
   },

@@ -177,27 +177,30 @@ async function step(name, fn) {
         await b.page.fill('#server-url', invite);
         assert.equal(await b.page.inputValue('#room'), ROOM, 'a sala vem do convite');
       } else {
-        await b.page.fill('#room', ROOM);
+        // Endereço sem sala: o campo Sala aparece depois de colar o endereço.
         await b.page.fill('#server-url', `127.0.0.1:${PORT}`);
+        await b.page.fill('#room', ROOM);
       }
       await b.page.click('#join-btn');
       await b.page.waitForSelector('#room-view:not([hidden])', { timeout: 15_000 });
     });
 
     await step('conexão P2P estabelecida dos dois lados', async () => {
-      await a.page.waitForSelector('.participant:has-text("Bob") .pill.ok', { timeout: 15_000 });
-      await b.page.waitForSelector('.participant:has-text("Alice") .pill.ok', { timeout: 15_000 });
+      // Conectado: as barrinhas de sinal aparecem ao lado do nome.
+      await a.page.waitForSelector('.participant:has-text("Bob") .signal-pill', { timeout: 15_000 });
+      await b.page.waitForSelector('.participant:has-text("Alice") .signal-pill', { timeout: 15_000 });
     });
 
     await openAnimationWindow(a.app);
 
     await step('Alice escolhe 720p / 30 fps, a tela principal e exclui o FakeDiscord', async () => {
-      await a.page.click('#quality-advanced summary'); // abre os ajustes finos
+      // A qualidade se escolhe no seletor de tela, junto com a tela.
+      await a.page.click('#share-btn');
+      await a.page.waitForSelector('.source-card', { timeout: 10_000 });
+      await a.page.click('#picker-quality #quality-advanced summary'); // abre os ajustes finos
       await a.page.selectOption('#q-resolution', '720p');
       await a.page.selectOption('#q-fps', '30');
       await a.page.selectOption('#q-codec', 'auto');
-      await a.page.click('#share-btn');
-      await a.page.waitForSelector('.source-card', { timeout: 10_000 });
       await a.page.click('.source-card:has-text("principal")');
       await a.page.check('#share-audio');
       await a.page.selectOption('#audio-mode', 'all');
@@ -248,6 +251,8 @@ async function step(name, fn) {
     await shot(b.page, '04-bob-assistindo');
 
     const second = await step('Alice muda ao vivo para 480p / 10 fps', async () => {
+      // No ar, a qualidade é a linha "Qualidade: …" do painel, que abre os ajustes.
+      await a.page.click('#share-quality-summary');
       await a.page.selectOption('#q-resolution', '480p');
       await a.page.selectOption('#q-fps', '10');
       await b.page.waitForFunction(() => {

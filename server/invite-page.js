@@ -43,8 +43,10 @@ h1{margin:0 0 6px;font:600 22px/1.25 Bahnschrift,"Segoe UI Variable Display","Se
 h2{margin:24px 0 6px;font:600 15px/1.3 Bahnschrift,"Segoe UI",sans-serif}
 p{margin:8px 0}.muted{color:var(--muted);font-size:13.5px}.room{font-weight:700;word-break:break-all}
 a{color:inherit}
-.btn{display:block;margin:20px 0 6px;padding:12px;border-radius:4px;background:var(--accent);color:#fff;text-align:center;font-weight:600;text-decoration:none}
-.btn:hover{background:var(--accent-hover)}
+.actions{display:grid;gap:10px;margin:20px 0 6px}
+.btn{display:block;padding:12px;border-radius:4px;background:var(--text);color:var(--panel);text-align:center;font-weight:600;text-decoration:none}
+.btn:hover{opacity:.9}
+.btn.secondary{background:var(--raised);color:var(--text);border:1px solid var(--border-strong)}
 .btn:focus-visible,button:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .btn[aria-disabled="true"]{opacity:.7;cursor:progress}
 ol{margin:6px 0;padding-left:20px}li{margin:4px 0}
@@ -52,7 +54,7 @@ code{display:block;margin-top:8px;padding:10px;border-radius:4px;border:1px soli
 button{margin-top:8px;padding:7px 14px;border-radius:4px;border:1px solid var(--border-strong);background:var(--raised);color:var(--text);font:inherit;font-weight:600;cursor:pointer}
 `;
 
-function invitePage({ room, invite, deepLink }) {
+function invitePage({ room, invite, deepLink, webLink = null }) {
   return `<!doctype html>
 <html lang="pt-BR">
 <head>
@@ -67,8 +69,13 @@ function invitePage({ room, invite, deepLink }) {
   <p class="brand"><span class="tally" aria-hidden="true"></span>Telão</p>
   <h1>Convite para a sala</h1>
   <p>Você foi convidado para a sala <span class="room">${escapeHtml(room)}</span>.</p>
-  <a class="btn" id="open" href="${escapeHtml(deepLink)}">Abrir no Telão</a>
-  <p class="muted">Se o navegador perguntar, permita abrir o Telão.</p>
+  <div class="actions">
+    <a class="btn" id="open" href="${escapeHtml(deepLink)}">Abrir no Telão</a>
+    ${webLink ? `<a class="btn secondary" id="web" href="${escapeHtml(webLink)}">Entrar pelo navegador</a>` : ''}
+  </div>
+  <p class="muted" id="open-note">Se o navegador perguntar, permita abrir o Telão.</p>
+  ${webLink ? '<p class="muted">Pelo navegador (iPhone, Android, Mac) dá para assistir, ouvir, conversar e ligar a câmera, sem instalar nada. Transmitir a tela é pelo app do Windows ou pelo navegador de um computador.</p>' : ''}
+  <section id="app-help">
   <h2>Não abriu?</h2>
   <ol>
     <li>Ainda não tem o Telão? Baixe o instalador (Windows) em
@@ -78,6 +85,7 @@ function invitePage({ room, invite, deepLink }) {
   </ol>
   <code id="invite">${escapeHtml(invite)}</code>
   <button type="button" id="copy">Copiar endereço</button>
+  </section>
 </main>
 <script>
 (function () {
@@ -96,9 +104,20 @@ function invitePage({ room, invite, deepLink }) {
       if (document.execCommand('copy')) done();
     }
   });
+  var open = document.getElementById('open');
+  // Fora do Windows (iPhone, Android, Mac) o app não existe: o navegador vira o
+  // caminho principal, e o link telao:// nem é tentado (daria erro na página).
+  var web = document.getElementById('web');
+  if (web && !/Windows NT/.test(navigator.userAgent)) {
+    web.classList.remove('secondary');
+    open.classList.add('secondary');
+    open.parentNode.insertBefore(web, open);
+    document.getElementById('open-note').hidden = true;
+    document.getElementById('app-help').hidden = true;
+    return;
+  }
   // Tenta abrir o app sozinho. Depois de cada tentativa o botão fica travado uns
   // segundos ("Abrindo o Telão…"), para um segundo clique não abrir outra cópia.
-  var open = document.getElementById('open');
   var label = open.textContent;
   var busy = false;
   var launch = function () {
@@ -134,7 +153,7 @@ const SECURITY_HEADERS = {
  * url pode ser só o caminho ("/sala") ou o endereço completo; scheme é como o
  * convite chegou ("https" atrás do túnel ou da Cloudflare). Devolve { status, headers, body }.
  */
-function httpResponse({ method, url, host, scheme }) {
+function httpResponse({ method, url, host, scheme, webApp = null }) {
   let pathname = '/';
   try {
     pathname = new URL(url, 'http://local').pathname;
@@ -151,7 +170,9 @@ function httpResponse({ method, url, host, scheme }) {
   if (pathname === '/favicon.ico') return reply(404, text, '');
   const invite = inviteFor({ host: String(host || ''), scheme, url });
   if (!invite) return reply(404, text, 'Convite inválido.\n');
-  return reply(200, 'text/html; charset=utf-8', invitePage(invite));
+  // webApp: onde está o Telão no navegador (só o servidor da Cloudflare serve, em /app/).
+  const webLink = webApp ? `${webApp}?sala=${encodeURIComponent(invite.room)}` : null;
+  return reply(200, 'text/html; charset=utf-8', invitePage({ ...invite, webLink }));
 }
 
 /** Atende as requisições HTTP no servidor do PC (http.Server do Node). */

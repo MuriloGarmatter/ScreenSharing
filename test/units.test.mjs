@@ -253,6 +253,10 @@ test('página do convite: monta o link certo e escapa o que vem da URL', () => {
   assert.ok(cloud.body.includes(escapeAttr(deepLinkFor('https://telao.xmbc.workers.dev/Filme%20Sexta'))));
   assert.ok(cloud.body.includes('releases/latest'), 'quem não tem o app acha onde baixar');
   assert.equal(httpResponse({ method: 'HEAD', url: '/sala', host: 'x.trycloudflare.com', scheme: 'https' }).body, undefined);
+  // Só o servidor do Telão (Cloudflare) tem o Telão no navegador: o botão aparece só lá.
+  const web = httpResponse({ method: 'GET', url: '/Filme%20Sexta', host: 'telao.xmbc.workers.dev', scheme: 'https', webApp: '/app/' }).body;
+  assert.ok(web.includes('href="/app/?sala=Filme%20Sexta">Entrar pelo navegador'), 'botão do navegador com a sala');
+  assert.doesNotMatch(httpResponse({ method: 'GET', url: '/sala', host: 'x.trycloudflare.com', scheme: 'https' }).body, /Entrar pelo navegador/);
   assert.equal(httpResponse({ method: 'POST', url: '/sala', host: 'x.trycloudflare.com', scheme: 'https' }).status, 405);
   // Atrás do túnel, o servidor do PC monta o convite com https.
   const tunneled = { headers: {} };

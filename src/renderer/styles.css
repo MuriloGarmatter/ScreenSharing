@@ -1035,6 +1035,57 @@ body:has(#room-view:not([hidden]):not(.console-hidden)) { --side-w: 352px; }
 .toast.error::before { background: var(--danger); }
 @keyframes toast-in { from { opacity: 0; transform: translateY(-8px); } }
 
+/* ---------- No navegador (iPhone, Android, Mac) ---------- */
+/* O mesmo app roda no navegador (src/web/bridge.js põe .web, .ios e .mobile no <html>). */
+.web .desktop-only { display: none !important; }
+/* Transmitir pelo navegador do computador: a lista do que transmitir é a dele. */
+.web .picker-tabs { display: none; }
+/* No celular, tela cheia é pelo botão (o duplo toque não abre). */
+.web .tile-bar .full-btn { display: inline-grid; }
+/* O iPhone só toca som depois de um toque na página: esta tecla, no alto do palco, pede o toque. */
+.audio-unlock {
+  position: absolute; top: 16px; left: 50%; z-index: 6; transform: translateX(-50%);
+  box-shadow: 0 2px 8px var(--shadow-lg);
+}
+
+/* Celular em pé: o palco em cima, na altura de uma imagem 16:9; o painel embaixo, rolando. */
+@media (max-width: 760px) {
+  .join, .room { height: 100dvh; }
+  .join { grid-template-columns: minmax(0, 1fr); }
+  .join-stage { display: none; }
+  .join-card { border-left: 0; padding: 18px 16px 24px; }
+  .room { grid-template-columns: minmax(0, 1fr); grid-template-rows: 48px auto minmax(0, 1fr); }
+  .room > .sidebar { border-left: 0; border-top: 1px solid var(--border); }
+  .stage { height: max(300px, calc(56.25vw + 46px)); }
+  .topbar { gap: 8px; padding-left: 10px; }
+  .topbar-right { gap: 6px; }
+  #console-btn, #room-view .sep { display: none; }
+  .room-title { max-width: none; font-size: 15px; }
+  .panel { padding-inline: 14px; }
+  .empty-screen { padding: 20px 18px; }
+  .empty h2 { font-size: 20px; }
+  .empty-invite { flex-direction: column; }
+  .tile-strip { height: 96px; }
+  body:has(#join-view:not([hidden])), body:has(#room-view:not([hidden]):not(.console-hidden)) { --side-w: 0px; }
+  /* Os avisos vão para o rodapé (no alto, cobririam o formulário e a imagem). */
+  .toasts { top: auto; bottom: 16px; left: 16px; right: 16px; align-items: stretch; }
+  .toast { max-width: none; }
+}
+/* Celular deitado: só as telas (o painel volta ao pôr o celular em pé). */
+@media (max-width: 960px) and (max-height: 520px) and (orientation: landscape) {
+  .room { height: 100dvh; grid-template-columns: minmax(0, 1fr); grid-template-rows: 44px minmax(0, 1fr); }
+  .room > .sidebar { display: none; }
+  .stage { height: auto; padding: 4px; }
+  #console-btn { display: none; }
+  body:has(#room-view:not([hidden])) { --side-w: 0px; }
+}
+/* Toque: campos com letra de 16 px (menos que isso, o iPhone dá zoom ao tocar) e
+   teclas maiores sobre o vídeo. */
+@media (pointer: coarse) {
+  input:not([type]), input[type="password"], input[type="number"], select, textarea { font-size: 16px; }
+  .tile-bar .icon-btn { width: 40px; height: 40px; }
+}
+
 /* Só para leitores de tela (o aviso de "no ar" e "pausado"). */
 .sr-only {
   position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
