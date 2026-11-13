@@ -1,0 +1,87 @@
+# Gera o instalador do Telão com o receptor do PS5 dentro e deixa num RASCUNHO de
+# release (só o dono do repositório vê e baixa). Rascunhos não aparecem para o
+# atualizador automático: o Telão de quem já usa não muda.
+name: Instalador de teste (com PS5)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - ps5-nativo
+
+permissions:
+  contents: write
+
+jobs:
+  receptor:
+    name: telao-ps5.exe
+    uses: ./.github/workflows/build-ps5-helper.yml
+
+  instalador:
+    name: Instalador win-x64
+    needs: receptor
+    runs-on: windows-latest
+    steps:
+      - name: Baixar o Telão
+        uses: actions/checkout@v4
+
+      - name: Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Trazer o receptor do PS5 para resources/telao-ps5
+        uses: actions/download-artifact@v4
+        with:
+          name: telao-ps5-win-x64
+          path: resources
+
+      - name: Conferir o receptor
+        shell: pwsh
+        run: |
+          if (-not (Test-Path resources/telao-ps5/telao-ps5.exe)) { throw "resources/telao-ps5/telao-ps5.exe não veio no artefato" }
+          Get-ChildItem resources/telao-ps5 | Format-Table Name, Length
+
+      - name: Dependências
+        run: npm ci
+
+      - name: Testes de lógica
+        run: npm test
+
+      - name: Gerar o instalador
+        run: npm run dist
+
+      - name: Conferir que o receptor entrou no app e dar nome ao arquivo
+        id: arquivo
+        shell: bash
+        run: |
+          test -f dist/win-unpacked/resources/telao-ps5/telao-ps5.exe
+          test -f dist/win-unpacked/resources/telao-audio.exe
+          VERSION="$(node -p "require('./package.json').version")"
+          NAME="Telao-Setup-${VERSION}-ps5-teste.exe"
+          cp "dist/Telao-Setup-${VERSION}.exe" "dist/${NAME}"
+          sha256sum "dist/${NAME}"
+          echo "name=${NAME}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Guardar como artefato
+        uses: actions/upload-artifact@v4
+        with:
+          name: telao-instalador-ps5-teste
+          path: dist/${{ steps.arquivo.outputs.name }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Rascunho de release (não publicado)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="ps5-teste-${{ github.run_number }}"
+          gh release create "$TAG" "dist/${{ steps.arquivo.outputs.name }}" \
+            --repo "${{ github.repository }}" \
+            --draft \
+            --target "${{ github.sha }}" \
+            --title "Telão ${{ steps.arquivo.outputs.version }} + PS5 (teste ${{ github.run_number }})" \
+            --notes "Instalador de TESTE com o PS5 (Reprodução Remota). É um rascunho: NÃO publique, senão o Telão de todo mundo tenta atualizar para ele. Baixe o .exe abaixo e instale por cima do Telão. Commit: ${{ github.sha }}"

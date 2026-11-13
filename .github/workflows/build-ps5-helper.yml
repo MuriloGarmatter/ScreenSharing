@@ -4,6 +4,7 @@ name: Compilar telao-ps5 (Windows)
 
 on:
   workflow_dispatch:
+  workflow_call: # o instalador de teste (instalador-teste-ps5.yml) reaproveita esta compilação
   push:
     paths:
       - "native/ps5/**"
