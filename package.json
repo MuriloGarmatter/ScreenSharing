@@ -9,13 +9,15 @@
   "scripts": {
     "start": "node scripts/build-audio.js && node scripts/start.js",
     "server": "node server/index.js",
-    "test": "node --test test/signaling.test.js test/units.test.mjs",
+    "test": "node --test test/signaling.test.js test/units.test.mjs test/ps5.test.mjs",
     "test:audio": "node test/app-audio.js",
     "test:e2e": "node test/e2e.js",
     "test:server": "node test/server-smoke.js",
     "icon": "node scripts/make-icon.js",
     "build:audio": "node scripts/build-audio.js",
-    "dist": "node scripts/make-icon.js && node scripts/build-audio.js && electron-builder --win --publish never"
+    "dist": "node scripts/make-icon.js && node scripts/build-audio.js && electron-builder --win --publish never",
+    "test:ps5": "electron test/ps5.js",
+    "test:ps5-app": "node test/ps5-app.js"
   },
   "dependencies": {
     "electron-updater": "^6.8.9",
@@ -45,6 +47,13 @@
       {
         "from": "resources/telao-audio.exe",
         "to": "telao-audio.exe"
+      },
+      {
+        "from": "resources/telao-ps5",
+        "to": "telao-ps5",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {

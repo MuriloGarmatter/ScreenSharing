@@ -370,9 +370,46 @@
     <div class="picker-tabs" role="tablist" aria-label="Tipo de fonte">
       <button class="tab active" data-tab="screen" role="tab" aria-selected="true" aria-controls="source-grid">Telas inteiras</button>
       <button class="tab" data-tab="window" role="tab" aria-selected="false" aria-controls="source-grid">Janelas</button>
+      <button class="tab" data-tab="ps5" role="tab" aria-selected="false" aria-controls="source-grid" hidden>PS5</button>
       <button id="picker-refresh" class="btn small ghost" aria-label="Recarregar a lista de telas"><span data-icon="refresh"></span>Recarregar</button>
     </div>
     <div id="source-grid" class="source-grid" role="tabpanel" aria-label="Telas e janelas"></div>
+    <form id="ps5-pair" class="ps5-pair" hidden novalidate>
+      <div class="ps5-pair-intro">
+        <h3>Parear um PS5</h3>
+        <p class="hint">Só na primeira vez. O PS5 e este PC precisam estar na mesma rede (de preferência o PS5 no cabo).</p>
+      </div>
+      <ol class="ps5-steps">
+        <li>No PS5, abra <b>Configurações → Sistema → Reprodução Remota</b> e ative <b>Habilitar Reprodução Remota</b>.</li>
+        <li>Ainda ali, escolha <b>Vincular dispositivo</b>. O PS5 mostra um código de 8 números.</li>
+        <li>Preencha abaixo e clique em <b>Parear</b>.</li>
+      </ol>
+      <div class="field">
+        <label for="ps5-host">Endereço do PS5 <em>(em Configurações → Rede → Status da conexão)</em></label>
+        <div class="input-row">
+          <input id="ps5-host" placeholder="192.168.0.10" autocomplete="off" spellcheck="false" maxlength="64">
+          <button type="button" id="ps5-scan" class="btn small ghost"><span data-icon="wifi"></span>Procurar na rede</button>
+        </div>
+        <div id="ps5-found" class="ps5-found" aria-live="polite"></div>
+      </div>
+      <div class="field">
+        <label for="ps5-account">ID da conta PSN <em>(o Telão descobre quando você entra na PSN; ele não vê a sua senha)</em></label>
+        <div class="input-row">
+          <input id="ps5-account" placeholder="Clique em Entrar na PSN" autocomplete="off" spellcheck="false" maxlength="12">
+          <button type="button" id="ps5-login" class="btn small ghost"><span data-icon="globe"></span>Entrar na PSN</button>
+        </div>
+      </div>
+      <div class="field">
+        <label for="ps5-pin">Código do PS5 <em>(8 números)</em></label>
+        <input id="ps5-pin" inputmode="numeric" placeholder="12345678" autocomplete="off" maxlength="9">
+      </div>
+      <p id="ps5-pair-error" class="ps5-pair-error" role="alert" hidden></p>
+      <div class="picker-actions">
+        <span class="spacer"></span>
+        <button type="button" id="ps5-pair-cancel" class="btn ghost">Voltar</button>
+        <button type="submit" id="ps5-pair-submit" class="btn primary">Parear</button>
+      </div>
+    </form>
     <footer class="picker-foot">
       <div id="audio-row" class="audio-row">
         <label class="check">
@@ -381,6 +418,7 @@
         </label>
         <select id="audio-mode" aria-label="De onde vem o som"></select>
         <button id="exclude-toggle" class="btn small ghost" type="button"></button>
+        <button id="ps5-forget" class="btn small ghost" type="button" hidden>Esquecer este PS5</button>
       </div>
       <div id="pick-apps" class="pick-apps" hidden>
         <div class="pick-head">

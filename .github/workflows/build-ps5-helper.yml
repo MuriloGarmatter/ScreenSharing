@@ -1,0 +1,120 @@
+# Compila o telao-ps5.exe (receptor de Reprodução Remota do PS5, AGPL-3.0) com MSYS2/MinGW64
+# e publica a pasta telao-ps5/ (exe + DLLs + LICENSE + NOTICE) como artefato.
+name: Compilar telao-ps5 (Windows)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "native/ps5/**"
+      - ".github/workflows/build-ps5-helper.yml"
+
+permissions:
+  contents: read
+
+env:
+  CHIAKI_NG_REF: v1.10.1
+
+jobs:
+  build:
+    name: telao-ps5 win-x64
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Desligar conversão de fim de linha do git
+        shell: pwsh
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
+      - name: Baixar o Telão
+        uses: actions/checkout@v4
+
+      - name: Baixar o chiaki-ng ${{ env.CHIAKI_NG_REF }}
+        uses: actions/checkout@v4
+        with:
+          repository: streetpea/chiaki-ng
+          ref: ${{ env.CHIAKI_NG_REF }}
+          path: chiaki-ng
+          submodules: false
+
+      - name: Instalar MSYS2 (mingw64)
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: mingw64
+          update: true
+          install: git
+          pacboy: >-
+            ca-certificates:p
+            cc:p
+            cmake:p
+            ninja:p
+            pkgconf:p
+            openssl:p
+            opus:p
+            json-c:p
+            miniupnpc:p
+            libevent:p
+            protobuf:p
+            python:p
+            python-protobuf:p
+            python-pip:p
+
+      - name: Submódulos do chiaki-ng (só os que a libchiaki usa)
+        run: |
+          git -C chiaki-ng submodule update --init --depth 1 \
+            third-party/nanopb third-party/jerasure third-party/gf-complete third-party/curl
+          # O gerador do nanopb precisa do protobuf do Python.
+          python -c "import google.protobuf" || pip install --break-system-packages protobuf
+
+      - name: Configurar
+        run: |
+          CHIAKI_DIR="$(cygpath -m "$PWD/chiaki-ng")"
+          cmake -S native/ps5 -B build-ps5 -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            -DCHIAKI_NG_DIR="$CHIAKI_DIR"
+
+      - name: Compilar
+        run: cmake --build build-ps5 --target telao-ps5
+
+      - name: Montar a pasta telao-ps5/
+        run: |
+          OUT=dist/telao-ps5
+          mkdir -p "$OUT/licenses/chiaki-ng"
+          cp build-ps5/telao-ps5.exe "$OUT/"
+          strip "$OUT/telao-ps5.exe"
+          # DLLs do MinGW de que o exe depende (OpenSSL, Opus, json-c, libevent, miniupnpc...).
+          ldd "$OUT/telao-ps5.exe" | grep -i '/mingw64/' | awk '{print $3}' | sort -u | while read -r dll; do
+            cp "$dll" "$OUT/"
+          done
+          cp native/ps5/LICENSE "$OUT/LICENSE"
+          cp native/ps5/NOTICE "$OUT/NOTICE"
+          {
+            echo
+            echo "Compilado a partir de:"
+            echo "  Telão: https://github.com/${GITHUB_REPOSITORY}/tree/${GITHUB_SHA}/native/ps5"
+            echo "  chiaki-ng: https://github.com/streetpea/chiaki-ng/tree/${CHIAKI_NG_REF} ($(git -C chiaki-ng rev-parse HEAD))"
+          } >> "$OUT/NOTICE"
+          cp chiaki-ng/COPYING "$OUT/licenses/chiaki-ng/"
+          cp -r chiaki-ng/LICENSES/. "$OUT/licenses/chiaki-ng/"
+          ls -la "$OUT"
+
+      - name: Testar fora do MSYS2 (confere se não falta DLL)
+        shell: pwsh
+        run: |
+          $out = & .\dist\telao-ps5\telao-ps5.exe discover --timeout 500
+          Write-Host $out
+          if ($LASTEXITCODE -ne 0) { throw "telao-ps5.exe saiu com código $LASTEXITCODE" }
+          $json = $out | ConvertFrom-Json
+          if (-not $json.ok) { throw "resposta inesperada: $out" }
+
+      - name: Publicar artefato
+        uses: actions/upload-artifact@v4
+        with:
+          name: telao-ps5-win-x64
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30

@@ -1,0 +1,52 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Teste PS5</title>
+<script type="module">
+  // Página do test/ps5.js: o módulo ps5.js de verdade, com a API do preload de verdade.
+  import { Ps5Capture, routePs5Audio, routePs5Event, routePs5Video } from '../../src/renderer/ps5.js';
+
+  const api = window.telao;
+  api.onPs5Video(routePs5Video);
+  api.onPs5Audio(routePs5Audio);
+  api.onPs5Event(routePs5Event);
+
+  /** Conta os quadros que saem da faixa de vídeo por `ms` milissegundos. */
+  async function countFrames(track, ms) {
+    const reader = new MediaStreamTrackProcessor({ track: track.clone() }).readable.getReader();
+    const end = performance.now() + ms;
+    let frames = 0;
+    let size = null;
+    while (performance.now() < end) {
+      const timer = new Promise((r) => setTimeout(() => r({ timeout: true }), Math.max(1, end - performance.now())));
+      const result = await Promise.race([reader.read(), timer]);
+      if (result.timeout || result.done) break;
+      frames += 1;
+      size = [result.value.displayWidth, result.value.displayHeight];
+      result.value.close();
+    }
+    reader.cancel().catch(() => {});
+    return { frames, size };
+  }
+
+  /** Frequência mais forte do som da faixa (Hz) e o nível. */
+  async function audioPeak(track) {
+    const ctx = new AudioContext({ sampleRate: 48000 });
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 8192;
+    ctx.createMediaStreamSource(new MediaStream([track])).connect(analyser);
+    await ctx.resume();
+    await new Promise((r) => setTimeout(r, 1200));
+    const bins = new Float32Array(analyser.frequencyBinCount);
+    analyser.getFloatFrequencyData(bins);
+    let best = 0;
+    for (let i = 1; i < bins.length; i++) if (bins[i] > bins[best]) best = i;
+    await ctx.close();
+    return { hz: (best * 48000) / analyser.fftSize, db: bins[best] };
+  }
+
+  window.harness = {
+    Ps5Capture, api, countFrames, audioPeak,
+    generator: typeof window.MediaStreamTrackGenerator === 'function',
+  };
+  window.harnessReady = true;
+</script>

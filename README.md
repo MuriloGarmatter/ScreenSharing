@@ -42,6 +42,7 @@ O som do **Discord não vai junto**, então ninguém ouve a própria voz de volt
   - [5. Ligar a câmera](#5-ligar-a-câmera)
   - [6. Conversar por voz](#6-conversar-por-voz)
   - [7. Avisos, bandeja e cores](#7-avisos-bandeja-e-cores)
+  - [8. Transmitir o PS5](#8-transmitir-o-ps5)
 - [Pelo iPhone, Android ou Mac (navegador)](#-pelo-iphone-android-ou-mac-navegador)
 - [Atalhos de teclado](#-atalhos-de-teclado)
 - [Som: como o Discord fica de fora](#-som-como-o-discord-fica-de-fora)
@@ -460,6 +461,38 @@ ligado, e um somzinho confirma (útil com o jogo na frente).
   as luzes de estado (conectado, pausado, apagado, erro). Dá para escolher em **Outra cor…**, e o app
   avisa. O app ajusta a cor do texto sozinho para continuar legível. **Restaurar tema e cor** volta
   para tema escuro com vermelho.
+
+---
+
+### 8. Transmitir o PS5
+
+O Telão recebe a imagem e o som do PS5 pela rede da sua casa (a Reprodução Remota do próprio
+console) e transmite para a sala como qualquer tela. **Não precisa de placa de captura** nem de outro
+programa aberto. Você continua jogando na TV, com o controle, normalmente.
+
+**O que precisa:** o PS5 e o PC na **mesma rede** (de preferência o PS5 no cabo) e uma conta PSN.
+
+**Na primeira vez (parear):**
+
+1. No PS5, abra **Configurações → Sistema → Reprodução Remota** e ative **Habilitar Reprodução Remota**.
+2. Ainda ali, escolha **Vincular dispositivo**. O PS5 mostra um código de 8 números.
+3. No Telão, clique em **Compartilhar tela**, abra a aba **PS5** e clique em **Parear um PS5**.
+4. O Telão procura o console na rede e preenche o endereço. Se não achar, digite o endereço que
+   aparece no PS5 em **Configurações → Rede → Status da conexão**.
+5. Clique em **Entrar na PSN** e faça o login na página da Sony. O Telão só fica com o número da
+   conta, que o PS5 exige para parear: ele não vê a sua senha.
+6. Digite o código de 8 números e clique em **Parear**.
+
+**Das outras vezes:** **Compartilhar tela → PS5 →** escolha o console **→ Transmitir**. Se o PS5
+estiver em repouso, o Telão acorda ele (leva uns 20 segundos).
+
+- Para jogos, use a qualidade **Jogo** (1080p · 60 fps). O PS5 entrega no máximo 1080p.
+- O som que vai é o do jogo. O que você fala no Discord ou no Telão não entra.
+- O PS5 só aceita **uma** Reprodução Remota por vez: feche o aplicativo oficial ou o chiaki-ng antes.
+- Netflix e outros apps de vídeo do PS5 aparecem pretos, por proteção contra cópia.
+- Para o repouso funcionar, ative no PS5 **Configurações → Sistema → Economia de energia → Recursos
+  disponíveis no modo de repouso → Permanecer conectado à Internet** e **Permitir ligar o PS5 pela rede**.
+- Se algo falhar, o registro fica em `%APPDATA%\Telao\logs\ps5.log`.
 
 ---
 
@@ -936,6 +969,8 @@ protocolo `telao://` não é registrado, para não tomar o lugar do app instalad
 |---|---|
 | `npm start` | Compila o auxiliar de som e abre o app em modo de desenvolvimento. |
 | `npm test` | Testes de lógica: servidor, página do convite, links `telao://`, convites, SDP, bitrate, predefinições, sugestões, sinal, buffer de áudio e cores. Não abre nada. |
+| `npm run test:ps5` | Testa o caminho do PS5 (vídeo H.264, som, repouso, queda) contra um console falso. **Não abre nada na tela.** |
+| `npm run test:ps5-app` | Testa a aba PS5 e o pareamento no app de verdade, com a janela oculta. **Não abre nada na tela.** |
 | `npm run build:audio` | Só compila o auxiliar de som (`resources/telao-audio.exe`). |
 | `npm run test:audio` | Testa a captura de som por app de verdade. **Toca dois tons baixinhos** por ~15 s. |
 | `npm run test:e2e` | **Abre duas janelas do app** e testa tudo de ponta a ponta (~1 min, com tons). |
@@ -945,6 +980,22 @@ protocolo `telao://` não é registrado, para não tomar o lugar do app instalad
 
 `test:audio` e `test:e2e` precisam do auxiliar compilado: rode `npm start` ou `npm run build:audio` antes.
 `Ctrl + Shift + I` abre as ferramentas de desenvolvedor dentro do app.
+
+### O receptor do PS5 (`telao-ps5.exe`)
+
+A aba **PS5** só aparece quando existe `resources/telao-ps5/telao-ps5.exe`. Ele fica em `native/ps5`
+(licença **AGPL-3.0**, porque usa a biblioteca do [chiaki-ng](https://github.com/streetpea/chiaki-ng))
+e é compilado pelo GitHub Actions (`.github/workflows/build-ps5-helper.yml`), não na sua máquina.
+Para trazer a pasta compilada:
+
+```bash
+gh run download --name telao-ps5-win-x64 --dir resources
+```
+
+O Telão conversa com ele só por linha de comando e pipes (`native/ps5/PROTOCOL.md`): o vídeo chega em
+H.264, é decodificado na interface com WebCodecs e vira uma faixa de vídeo comum
+(`src/renderer/ps5.js`); as chaves do pareamento ficam cifradas pelo Windows (`src/main/ps5.js`).
+Sem o `.exe`, os testes usam um console falso (`test/fixtures/fake-ps5.js`).
 
 ### Como funciona
 

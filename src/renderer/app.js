@@ -3,6 +3,7 @@ import {
 } from './address.js';
 import { AppAudioCapture, LevelMeter, exeLabel, routeAppAudioData, routeAppAudioEvent } from './app-audio.js';
 import { Mesh, REACTIONS, supportsCamera, supportsVoice } from './mesh.js';
+import { Ps5Capture, routePs5Audio, routePs5Event, routePs5Video } from './ps5.js';
 import {
   AUDIO_CONSTRAINTS, BITRATES, CAMERA_CONSTRAINTS, CODECS, cameraErrorMessage, micErrorMessage, voiceConstraints, DEFAULT_SHARE_SETTINGS, FRAME_RATES, OPTIMIZE, QUALITY_PRESETS, RESOLUTIONS,
   detectHardwareH264, effectiveFps, matchPreset, presetSpec, resolveCodec, suggestLowerSettings, targetBitrate,
@@ -50,6 +51,8 @@ const state = {
   trackers: new Map(), // peerId -> StatsTracker
   statsTimer: null,
   picker: { sources: [], tab: 'screen', selected: null, windowThumbs: false, loads: 0 },
+  // PS5 pareados (sem as chaves) e o que a busca na rede achou: host -> { state, name, id }
+  ps5: { consoles: [], accountId: '', found: new Map(), scanned: false, scanning: null },
   pinned: null, // chave do monitor em destaque
   sharingPeers: new Set(), // quem está transmitindo (para avisar quando alguém começa)
   lastAnnounce: new Map(), // peerId -> hora do último aviso "começou a transmitir"
@@ -738,6 +741,10 @@ async function toggleShareByShortcut() {
   let sources = [];
   try { sources = await api.listSources({ thumbnails: false }); } catch { /* cai no seletor */ }
   const last = prefs.lastShare;
+  if (last?.type === 'ps5' && ps5Available()) {
+    if (await startShare({ id: last.id, type: 'ps5', consoleId: last.id.slice(4), name: last.name }, last.audio)) confirmBySound('start');
+    return;
+  }
   // A mesma tela ou janela da última vez. Uma janela aberta de novo (o jogo reiniciou)
   // ganha outro id: aí vale a janela com o mesmo nome. Sem última vez, a tela principal.
   const source = (last && (sources.find((s) => s.id === last.id)
@@ -1994,7 +2001,7 @@ function renderShareUi() {
   renderQualitySummary();
   if (sharing) updateClock();
   else $('#on-air-time').textContent = '--:--:--';
-  $('#anti-echo-row').hidden = state.info.appAudio && state.share?.audioMode !== 'system';
+  $('#anti-echo-row').hidden = (state.info.appAudio && state.share?.audioMode !== 'system') || state.share?.audioMode === 'ps5';
   $('#pause-btn').innerHTML = `${icon(paused ? 'play' : 'pause')}${paused ? 'Retomar' : 'Pausar'}`;
   $('#pause-btn').title = `${paused ? 'Retomar' : 'Pausar'} a transmissão${keyHint('Ctrl+Alt+P')}`;
   // No iPhone e no Android não dá para transmitir a tela: sem a tecla, a lâmpada e o painel.
@@ -2046,7 +2053,9 @@ function renderShareAudio() {
   $('#share-audio-info').hidden = !share?.audio;
   if (!share?.audio) return;
   let text;
-  if (share.appAudio) {
+  if (share.audioMode === 'ps5') {
+    text = 'Som do jogo, direto do PS5.';
+  } else if (share.appAudio) {
     const { capturing, excluded } = share.appAudio.summary([state.info.selfExe]);
     const nobody = share.audioMode === 'pick' ? 'nenhum dos apps escolhidos está tocando agora' : 'nenhum tocando agora';
     const what = share.audioMode === 'app' ? `Som só de ${share.source.name}` : (share.audioMode === 'pick' ? 'Som só de' : 'Som dos apps');
@@ -2084,6 +2093,7 @@ async function captureSource(sourceId, settings, withAudio) {
 
 function releaseShare(share) {
   share.stream.getTracks().forEach((t) => t.stop());
+  share.ps5?.stop();
   share.preview.getTracks().forEach((t) => t.stop());
   share.appAudio?.stop();
   share.meter?.close();
@@ -2100,9 +2110,10 @@ function makePreview(videoTrack) {
   return new MediaStream([track]);
 }
 
-/** Modo de som efetivo: "só o app" só existe para janelas. */
+/** Modo de som efetivo: "só o app" só existe para janelas; o PS5 manda o som dele. */
 function effectiveAudioMode(source, enabled) {
   if (!enabled) return 'none';
+  if (source.type === 'ps5') return 'ps5';
   if (!state.info.appAudio) return state.info.systemAudio ? 'system' : 'none';
   const mode = source.type === 'window' ? prefs.audioModeWindow : prefs.audioModeScreen;
   if (mode === 'app' && source.type !== 'window') return 'all';
@@ -2126,11 +2137,31 @@ async function beginShare(source, audioEnabled, stillWanted) {
   const settings = readShareSettings();
   const mode = effectiveAudioMode(source, audioEnabled);
   let stream;
-  try {
-    stream = await captureSource(source.id, settings, mode === 'system');
-  } catch (err) {
-    if (stillWanted() && err?.name !== 'NotAllowedError') toast(`Não foi possível capturar: ${cleanError(err)}`, 'error', 8000);
-    return false;
+  let ps5 = null;
+  if (source.type === 'ps5') {
+    ps5 = new Ps5Capture(api);
+    try {
+      stream = await ps5.start({
+        id: source.consoleId, settings, audio: mode === 'ps5',
+        onStatus: (status) => {
+          if (!stillWanted()) return;
+          if (status === 'waking') toast('O PS5 estava em repouso: acordando (leva uns 20 segundos)…', 'info', 20000);
+          else toast(`Conectando ao ${source.name}…`, 'info', 6000);
+        },
+      });
+    } catch (err) {
+      if (stillWanted() && err?.name !== 'AbortError') toast(`Não foi possível conectar ao PS5: ${cleanError(err)}`, 'error', 10000);
+      // A tentativa nova derrubou a sessão de PS5 que estava no ar (o console só aceita uma).
+      if (stillWanted() && state.share?.ps5) stopShare();
+      return false;
+    }
+  } else {
+    try {
+      stream = await captureSource(source.id, settings, mode === 'system');
+    } catch (err) {
+      if (stillWanted() && err?.name !== 'NotAllowedError') toast(`Não foi possível capturar: ${cleanError(err)}`, 'error', 8000);
+      return false;
+    }
   }
   if (isWeb()) {
     // O nome do que foi escolhido na lista do navegador.
@@ -2156,8 +2187,9 @@ async function beginShare(source, audioEnabled, stillWanted) {
     stream,
     source,
     audio: Boolean(audioTrack),
-    audioMode: !audioTrack ? 'none' : (appAudio ? mode : 'system'),
+    audioMode: !audioTrack ? 'none' : (appAudio || ps5 ? mode : 'system'),
     appAudio,
+    ps5,
     meter: audioTrack ? new LevelMeter(audioTrack) : null,
     preview: makePreview(stream.getVideoTracks()[0]),
     paused: false,
@@ -2172,6 +2204,10 @@ async function beginShare(source, audioEnabled, stillWanted) {
     appAudio.addEventListener('change', () => { if (state.share === share) renderShareAudio(); });
     appAudio.addEventListener('warning', (e) => toast(e.detail, 'warn', 7000));
     appAudio.addEventListener('failure', (e) => { if (state.share === share) toast(e.detail, 'error', 8000); });
+  }
+  if (ps5) {
+    ps5.addEventListener('warning', (e) => toast(e.detail, 'warn', 7000));
+    ps5.addEventListener('ended', (e) => { if (state.share === share) stopShare(e.detail); });
   }
   stream.getVideoTracks()[0].addEventListener('ended', () => {
     if (state.share === share) stopShare('A tela ou janela transmitida foi fechada.');
@@ -2764,10 +2800,11 @@ async function loadSources() {
   if (load !== state.picker.loads) return; // uma lista mais nova já está a caminho
   state.picker.sources = sources;
   state.picker.windowThumbs = windowThumbs;
-  if (!sources.some((s) => s.id === state.picker.selected)) {
-    state.picker.selected = sources.find((s) => s.type === state.picker.tab)?.id ?? null;
+  if (!allSources().some((s) => s.id === state.picker.selected)) {
+    state.picker.selected = allSources().find((s) => s.type === state.picker.tab)?.id ?? null;
   }
   renderSources();
+  loadPs5();
 }
 
 /** Marca a aba escolhida (para a vista e para o leitor de tela). */
@@ -2780,11 +2817,18 @@ function markTab(tab) {
 }
 
 function renderSources() {
-  const { sources, tab, selected } = state.picker;
+  const { tab, selected } = state.picker;
+  const sources = allSources();
   markTab(tab);
   const list = sources.filter((s) => s.type === tab);
   const grid = $('#source-grid');
-  if (!list.length) {
+  if (tab === 'ps5') {
+    grid.replaceChildren(...list.map(ps5Card), el('button', {
+      class: 'source-card add-card', type: 'button', onclick: () => openPairing(),
+    }, el('div', { class: 'source-thumb', html: icon('plus') }),
+    el('div', { class: 'source-name' }, el('span', {}, 'Parear um PS5')),
+    el('div', { class: 'source-detail' }, 'Só na primeira vez')));
+  } else if (!list.length) {
     grid.replaceChildren(el('p', { class: 'hint' }, tab === 'screen' ? 'Nenhuma tela encontrada.' : 'Nenhuma janela aberta encontrada.'));
   } else {
     grid.replaceChildren(...list.map((s) => {
@@ -2826,7 +2870,7 @@ function excludedApps() {
 }
 
 function selectedSource() {
-  return state.picker.sources.find((s) => s.id === state.picker.selected) || null;
+  return allSources().find((s) => s.id === state.picker.selected) || null;
 }
 
 function isExcludedApp(name) {
@@ -2845,17 +2889,33 @@ function pickedApps() {
 function syncAudioControls() {
   const enabled = $('#share-audio').checked;
   const source = selectedSource();
+  const isPs5 = source?.type === 'ps5';
+  $('#audio-mode').hidden = isPs5;
+  $('#exclude-toggle').hidden = isPs5;
+  $('#ps5-forget').hidden = !isPs5;
+  if (isPs5) {
+    $('#audio-row').hidden = false;
+    $('#pick-apps').hidden = true;
+    $('#exclude-editor').hidden = true;
+    $('#picker-start').disabled = false;
+    $('#audio-hint').textContent = `${enabled ? 'Vai o som do jogo, direto do PS5.' : 'A transmissão vai sem som.'} Para jogar, a qualidade Jogo (60 fps) fica mais fluida; o PS5 vai até 1080p.`;
+    return;
+  }
   const isWindow = source?.type === 'window';
+  // Na aba PS5, "Transmitir" só vale para um PS5: a tela marcada em outra aba não vai por engano.
+  const wrongTab = state.picker.tab === 'ps5';
+  $('#audio-row').hidden = wrongTab;
   const select = $('#audio-mode');
   const modes = isWindow ? ['app', 'all', 'pick', 'system'] : ['all', 'pick', 'system'];
   select.replaceChildren(...modes.map((m) => el('option', { value: m }, AUDIO_MODE_LABELS[m])));
   select.value = effectiveAudioMode(source || { type: 'screen' }, true);
   select.disabled = !enabled;
   $('#exclude-toggle').textContent = `Apps excluídos (${excludedApps().length})`;
-  const picking = state.info.appAudio && enabled && select.value === 'pick';
+  const picking = !wrongTab && state.info.appAudio && enabled && select.value === 'pick';
+  if (wrongTab) $('#exclude-editor').hidden = true;
   // Sem nenhum app marcado em "Só os apps que eu escolher", Transmitir fica desativado
   // (o motivo aparece no aviso logo abaixo).
-  $('#picker-start').disabled = !source || (picking && !pickedApps().length);
+  $('#picker-start').disabled = !source || wrongTab || (picking && !pickedApps().length);
   const pickPanel = $('#pick-apps');
   if (picking && (pickPanel.hidden || state.pickStale)) {
     state.pickStale = false;
@@ -2864,7 +2924,8 @@ function syncAudioControls() {
   pickPanel.hidden = !picking;
 
   const hint = $('#audio-hint');
-  if (isWeb()) {
+  if (wrongTab) hint.textContent = 'Pareie um PS5 (só na primeira vez) e escolha ele para transmitir.';
+  else if (isWeb()) {
     hint.textContent = enabled
       ? 'O navegador pergunta o que transmitir. Para ir com som, marque a opção de compartilhar o áudio na janela dele.'
       : 'A transmissão vai sem som.';
@@ -3004,6 +3065,10 @@ function setupPicker() {
   for (const tab of $$('.tab')) {
     tab.addEventListener('click', () => {
       state.picker.tab = tab.dataset.tab;
+      // Abriu a aba PS5 com uma tela marcada: marca o console pareado (se houver).
+      if (state.picker.tab === 'ps5' && selectedSource()?.type !== 'ps5') {
+        state.picker.selected = ps5Sources()[0]?.id ?? state.picker.selected;
+      }
       if (state.picker.tab === 'window' && !state.picker.windowThumbs) {
         markTab(state.picker.tab);
         loadSources(); // agora sim, com as miniaturas das janelas
@@ -3013,6 +3078,8 @@ function setupPicker() {
     });
   }
   setupAudioControls();
+  setupPs5();
+  dialog.addEventListener('close', () => closePairing());
   $('#picker-start').addEventListener('click', async () => {
     const source = selectedSource();
     if (!source) return;
@@ -3028,6 +3095,190 @@ function setupPicker() {
     }
     dialog.close();
     await startShare(source, audio);
+  });
+}
+
+// ---------- PS5 ----------
+// O console pareado aparece como mais uma fonte, na aba PS5 do seletor. Quem fala
+// com ele é o telao-ps5.exe (Remote Play); ver ps5.js e src/main/ps5.js.
+
+const ps5Available = () => !isWeb() && state.info.ps5 === true;
+
+const PS5_STATE = {
+  ready: 'Ligado',
+  standby: 'Em repouso (o Telão acorda)',
+  missing: 'Não encontrado na rede',
+  unknown: 'Procurando…',
+};
+
+/** As fontes do seletor: telas e janelas, mais os PS5 pareados. */
+function allSources() {
+  return [...state.picker.sources, ...ps5Sources()];
+}
+
+function ps5Sources() {
+  if (!ps5Available()) return [];
+  return state.ps5.consoles.map((c) => {
+    const found = state.ps5.found.get(c.host);
+    return {
+      id: `ps5:${c.id}`, type: 'ps5', consoleId: c.id, name: c.name, host: c.host,
+      state: found ? found.state : (state.ps5.scanned ? 'missing' : 'unknown'),
+    };
+  });
+}
+
+function ps5Card(s) {
+  const card = el('button', {
+    class: `source-card ps5-card${s.id === state.picker.selected ? ' selected' : ''}`, type: 'button', title: s.name,
+    'aria-pressed': String(s.id === state.picker.selected), dataset: { id: s.id },
+  },
+    el('div', { class: 'source-thumb', html: icon('gamepad') }),
+    el('div', { class: 'source-name' }, el('span', {}, s.name)),
+    el('div', { class: 'source-detail' }, el('span', { class: s.state === 'ready' ? 'state-ready' : '' }, PS5_STATE[s.state]), ` · ${s.host}`));
+  card.addEventListener('click', () => {
+    state.picker.selected = s.id;
+    renderSources();
+  });
+  card.addEventListener('dblclick', () => $('#picker-start').click());
+  return card;
+}
+
+/** Recarrega os pareados e procura os consoles na rede (sem travar o seletor). */
+async function loadPs5() {
+  if (!ps5Available()) return;
+  try {
+    const { consoles, accountId } = await api.ps5List();
+    state.ps5.consoles = consoles;
+    state.ps5.accountId = accountId;
+  } catch { /* fica a lista que já havia */ }
+  if ($('#picker').open) renderSources();
+  scanPs5();
+}
+
+function scanPs5() {
+  if (state.ps5.scanning) return state.ps5.scanning;
+  state.ps5.scanning = (async () => {
+    try {
+      const found = await api.ps5Discover({});
+      state.ps5.found = new Map(found.map((c) => [c.host, c]));
+    } catch (err) {
+      console.warn('Busca de PS5:', err);
+    } finally {
+      state.ps5.scanned = true;
+      state.ps5.scanning = null;
+    }
+    if ($('#picker').open && state.picker.tab === 'ps5') renderSources();
+    if (!$('#ps5-pair').hidden) renderFoundPs5();
+  })();
+  return state.ps5.scanning;
+}
+
+function openPairing() {
+  $('#picker').classList.add('pairing');
+  $('#ps5-pair').hidden = false;
+  $('#ps5-pair-error').hidden = true;
+  $('#ps5-account').value = $('#ps5-account').value || state.ps5.accountId || '';
+  $('#ps5-pin').value = '';
+  scanPs5();
+  renderFoundPs5();
+  $(state.ps5.found.size ? '#ps5-account' : '#ps5-host').focus();
+}
+
+function closePairing() {
+  $('#picker').classList.remove('pairing');
+  $('#ps5-pair').hidden = true;
+}
+
+/** Consoles achados na rede: um clique preenche o endereço. */
+function renderFoundPs5() {
+  const box = $('#ps5-found');
+  if (state.ps5.scanning && !state.ps5.found.size) {
+    box.replaceChildren(el('span', { class: 'hint' }, el('span', { class: 'spinner tiny' }), ' Procurando o PS5 na rede…'));
+    return;
+  }
+  const consoles = [...state.ps5.found.values()].filter((c) => c.ps5);
+  if (!consoles.length) {
+    box.replaceChildren(state.ps5.scanned
+      ? el('span', { class: 'hint' }, 'Nenhum PS5 respondeu. Confira se ele está ligado e na mesma rede, ou digite o endereço.')
+      : '');
+    return;
+  }
+  if (!$('#ps5-host').value && consoles.length === 1) $('#ps5-host').value = consoles[0].host;
+  box.replaceChildren(...consoles.map((c) => el('button', {
+    type: 'button', class: 'btn small ghost', title: `Usar ${c.host}`,
+    onclick: () => { $('#ps5-host').value = c.host; $('#ps5-account').focus(); },
+  }, `${c.name} · ${c.host} · ${c.state === 'ready' ? 'ligado' : 'em repouso'}`)));
+}
+
+function setupPs5() {
+  $('.tab[data-tab="ps5"]').hidden = !ps5Available();
+  $('#ps5-pair-cancel').addEventListener('click', () => closePairing());
+  $('#ps5-scan').addEventListener('click', () => { scanPs5(); renderFoundPs5(); });
+  $('#ps5-login').addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    const label = button.innerHTML;
+    button.disabled = true;
+    button.textContent = 'Aguardando o login…';
+    $('#ps5-pair-error').hidden = true;
+    try {
+      const accountId = await api.ps5Login();
+      if (accountId) {
+        $('#ps5-account').value = accountId;
+        $('#ps5-pin').focus();
+      }
+    } catch (err) {
+      $('#ps5-pair-error').textContent = cleanError(err);
+      $('#ps5-pair-error').hidden = false;
+    } finally {
+      button.disabled = false;
+      button.innerHTML = label;
+    }
+  });
+  $('#ps5-pin').addEventListener('input', (event) => { event.target.value = event.target.value.replace(/\D/g, '').slice(0, 8); });
+  $('#ps5-forget').addEventListener('click', async () => {
+    const source = selectedSource();
+    if (source?.type !== 'ps5') return;
+    const yes = await askConfirm({
+      title: `Esquecer ${source.name}?`,
+      text: 'Para usar de novo, vai precisar parear outra vez (com o código que aparece no PS5).',
+      ok: 'Esquecer',
+    });
+    if (!yes) return;
+    const { consoles } = await api.ps5Forget(source.consoleId);
+    state.ps5.consoles = consoles;
+    state.picker.selected = null;
+    renderSources();
+  });
+  $('#ps5-pair').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const error = $('#ps5-pair-error');
+    const show = (message, field) => {
+      error.textContent = message;
+      error.hidden = false;
+      if (field) $(field).focus();
+    };
+    const host = $('#ps5-host').value.trim();
+    const accountId = $('#ps5-account').value.trim();
+    const pin = $('#ps5-pin').value.trim();
+    if (!host) return show('Digite o endereço do PS5 (ou clique em Procurar na rede).', '#ps5-host');
+    if (!/^[A-Za-z0-9+/]{11}=$/.test(accountId)) return show('O ID da conta PSN tem 12 caracteres e termina com =.', '#ps5-account');
+    if (!/^\d{8}$/.test(pin)) return show('O código do PS5 tem 8 números.', '#ps5-pin');
+    error.hidden = true;
+    const submit = $('#ps5-pair-submit');
+    submit.disabled = true;
+    submit.textContent = 'Pareando…';
+    try {
+      const paired = await api.ps5Register({ host, accountId, pin });
+      closePairing();
+      state.picker.selected = `ps5:${paired.id}`;
+      toast(`${paired.name} pareado. Agora é só clicar em Transmitir.`, 'info', 6000);
+      await loadPs5();
+    } catch (err) {
+      show(`Não deu para parear: ${cleanError(err)}`);
+    } finally {
+      submit.disabled = false;
+      submit.textContent = 'Parear';
+    }
   });
 }
 
@@ -3288,6 +3539,11 @@ async function init() {
 
   api.onAppAudioData(routeAppAudioData);
   api.onAppAudioEvent(routeAppAudioEvent);
+  if (api.onPs5Video) {
+    api.onPs5Video(routePs5Video);
+    api.onPs5Audio(routePs5Audio);
+    api.onPs5Event(routePs5Event);
+  }
   api.onTunnelProgress((fraction) => {
     if (!state.hosting || state.hosting.download === null) return;
     state.hosting.download = fraction;

@@ -1,0 +1,19 @@
+telao-ps5 — receptor de Reprodução Remota do PS5 para o Telão
+
+Este programa é software livre, distribuído sob a GNU Affero General Public
+License, versão 3 (AGPL-3.0). O texto completo está no arquivo LICENSE.
+
+Ele usa a libchiaki, parte do chiaki-ng (https://github.com/streetpea/chiaki-ng),
+versão v1.10.1, licenciada sob AGPL-3.0 com exceção para o OpenSSL
+(ver licenses/chiaki-ng/).
+
+Código-fonte correspondente:
+  - telao-ps5: pasta native/ps5 do repositório do Telão (telao-ps5.c, CMakeLists.txt)
+  - chiaki-ng: https://github.com/streetpea/chiaki-ng/tree/v1.10.1
+
+As DLLs que acompanham o programa vêm do MSYS2 (mingw64) e têm as licenças dos
+seus projetos: OpenSSL (Apache-2.0), Opus (BSD-3-Clause), json-c (MIT),
+libevent (BSD-3-Clause), miniupnpc (BSD-3-Clause) e o runtime do MinGW-w64.
+
+PlayStation e PS5 são marcas da Sony Interactive Entertainment. Este programa
+não é afiliado nem endossado pela Sony.

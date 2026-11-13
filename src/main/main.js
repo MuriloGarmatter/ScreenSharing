@@ -6,12 +6,14 @@ const os = require('node:os');
 const http = require('node:http');
 const {
   app, BrowserWindow, Menu, Notification, Tray, clipboard, desktopCapturer, globalShortcut, ipcMain,
-  nativeImage, nativeTheme, powerSaveBlocker, screen, session, shell,
+  nativeImage, nativeTheme, powerSaveBlocker, safeStorage, screen, session, shell,
 } = require('electron');
 const { attachSignaling, turnServers, DEFAULT_ICE_SERVERS } = require('../../server/signaling');
 const { handleHttpRequest } = require('../../server/invite-page');
 const { findCloudflared, startTunnel, downloadCloudflared } = require('./tunnel');
 const { AppAudio, DEFAULT_EXCLUDED_APPS } = require('./app-audio');
+const { Ps5 } = require('./ps5');
+const psn = require('./psn');
 const { autoUpdater } = require('electron-updater');
 const { normalizeAppearance, titleBarOverlay } = require('./appearance');
 
@@ -26,6 +28,10 @@ if (profileArg) {
   const profile = profileArg.slice('--profile='.length).replace(/[^\w-]/g, '');
   if (profile) app.setPath('userData', path.join(app.getPath('appData'), `${app.getName()}-${profile}`));
 }
+
+// Só para os testes automáticos (rodando pelo código): o app funciona inteiro, mas
+// nada aparece: sem janela na tela, sem ícone na bandeja, sem atalhos e sem avisos.
+const HEADLESS = !app.isPackaged && process.env.TELAO_HEADLESS === '1';
 
 const ASSETS = path.join(__dirname, '..', 'renderer', 'assets');
 const ICON_PATH = path.join(ASSETS, 'icon.png');
@@ -49,6 +55,23 @@ const appAudio = new AppAudio({
     : path.join(__dirname, '..', '..', 'resources', 'telao-audio.exe'),
   send: (channel, ...args) => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, ...args);
+  },
+});
+// Receptor de Remote Play do PS5 (pasta com o .exe e as DLLs dele). TELAO_PS5_HELPER
+// troca pelo receptor falso dos testes.
+const ps5 = new Ps5({
+  helperPath: process.env.TELAO_PS5_HELPER || (app.isPackaged
+    ? path.join(process.resourcesPath, 'telao-ps5', 'telao-ps5.exe')
+    : path.join(__dirname, '..', '..', 'resources', 'telao-ps5', 'telao-ps5.exe')),
+  storeFile: path.join(app.getPath('userData'), 'ps5.json'),
+  logFile: path.join(app.getPath('userData'), 'logs', 'ps5.log'),
+  send: (channel, ...args) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, ...args);
+  },
+  crypto: {
+    available: () => safeStorage.isEncryptionAvailable(),
+    encrypt: (text) => safeStorage.encryptString(text),
+    decrypt: (buffer) => safeStorage.decryptString(buffer),
   },
 });
 let hosted = null; // { httpServer, signaling, port, tunnel }
@@ -105,6 +128,7 @@ function createWindow() {
     title: 'Telão',
     icon: fs.existsSync(ICON_PATH) ? ICON_PATH : undefined,
     show: false,
+    skipTaskbar: HEADLESS,
     // Barra de título integrada: os botões do Windows ficam sobre a barra do app.
     ...(INTEGRATED_TITLE_BAR ? { titleBarStyle: 'hidden', titleBarOverlay: titleBarOverlay(mode) } : {}),
     webPreferences: {
@@ -117,7 +141,7 @@ function createWindow() {
       backgroundThrottling: false,
     },
   });
-  mainWindow.once('ready-to-show', () => mainWindow.show());
+  mainWindow.once('ready-to-show', () => { if (!HEADLESS) mainWindow.show(); });
   mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -177,7 +201,7 @@ function requestQuit() {
 ipcMain.handle('app:quit', () => { app.quit(); });
 
 function showWindow() {
-  if (!mainWindow) return;
+  if (!mainWindow || HEADLESS) return;
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
   mainWindow.focus();
@@ -286,6 +310,7 @@ function updateTray() {
 }
 
 function createTray() {
+  if (HEADLESS) return;
   tray = new Tray(path.join(ASSETS, 'tray.png'));
   tray.on('click', showWindow);
   updateTray();
@@ -293,7 +318,7 @@ function createTray() {
 
 /** Liga/desliga os atalhos globais; devolve os que outro programa já usa. */
 function setShortcuts(on) {
-  if (on === shortcutsOn) return [];
+  if (HEADLESS || on === shortcutsOn) return [];
   shortcutsOn = on;
   if (!on) {
     for (const key of Object.keys(SHORTCUTS)) globalShortcut.unregister(key);
@@ -323,7 +348,7 @@ const liveNotifications = new Set();
 let lastNotificationAt = 0;
 
 ipcMain.handle('attention', (_event, options = {}) => {
-  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.isFocused()) return;
+  if (HEADLESS || !mainWindow || mainWindow.isDestroyed() || mainWindow.isFocused()) return;
   mainWindow.flashFrame(true);
   if (!Notification.isSupported() || Date.now() - lastNotificationAt < NOTIFY_MIN_INTERVAL_MS) return;
   lastNotificationAt = Date.now();
@@ -340,6 +365,73 @@ ipcMain.handle('attention', (_event, options = {}) => {
   liveNotifications.add(notification);
   notification.show();
 });
+
+// ---------- Login na PSN (para parear o PS5) ----------
+// Abre a página de login da Sony numa janela própria e devolve o ID da conta
+// (ou null, se a pessoa fechou a janela). A sessão é só de memória: nada do
+// login fica guardado no PC.
+
+let psnLoginWindow = null;
+
+function psnLogin() {
+  if (HEADLESS) return Promise.reject(new Error('Login indisponível nos testes.'));
+  if (psnLoginWindow && !psnLoginWindow.isDestroyed()) {
+    psnLoginWindow.focus();
+    return Promise.reject(new Error('A janela de login da PSN já está aberta.'));
+  }
+  return new Promise((resolve, reject) => {
+    const loginSession = session.fromPartition(`psn-login-${Date.now()}`);
+    const win = new BrowserWindow({
+      parent: mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined,
+      modal: Boolean(mainWindow && !mainWindow.isDestroyed()),
+      width: 520,
+      height: 780,
+      title: 'Entrar na PSN',
+      autoHideMenuBar: true,
+      backgroundColor: '#ffffff',
+      webPreferences: { session: loginSession, contextIsolation: true, nodeIntegration: false, sandbox: true },
+    });
+    psnLoginWindow = win;
+    // A Sony recusa navegadores que não reconhece: vai como um Chrome comum.
+    win.webContents.setUserAgent(win.webContents.getUserAgent().replace(/\s(?:Electron|Telao|telao)\/\S+/g, ''));
+    win.webContents.setWindowOpenHandler(({ url }) => {
+      if (/^https:\/\//i.test(url)) shell.openExternal(url);
+      return { action: 'deny' };
+    });
+    let settled = false;
+    const settle = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      fn(value);
+      if (!win.isDestroyed()) win.close();
+    };
+    // O retorno da Sony nem chega a carregar: o código vem no endereço.
+    loginSession.webRequest.onBeforeRequest({ urls: [`${psn.REDIRECT_URI}*`] }, (details, callback) => {
+      callback({ cancel: true });
+      const code = psn.redirectCode(details.url);
+      if (code) {
+        if (settled) return;
+        settled = true;
+        if (!win.isDestroyed()) win.close();
+        psn.accountIdFromCode(code).then(resolve, reject);
+      } else {
+        settle(reject, new Error(`O login na PSN não foi concluído${psn.redirectError(details.url) ? ` (${psn.redirectError(details.url)})` : ''}.`));
+      }
+    });
+    win.on('closed', () => {
+      if (psnLoginWindow === win) psnLoginWindow = null;
+      loginSession.clearStorageData().catch(() => {});
+      if (!settled) {
+        settled = true;
+        resolve(null); // fechou a janela: cancelou
+      }
+    });
+    win.loadURL(psn.loginUrl()).catch((err) => {
+      // ERR_ABORTED é o próprio cancelamento do retorno, acima.
+      if (!/ERR_ABORTED/.test(String(err))) settle(reject, new Error('Não foi possível abrir a página de login da Sony. Confira a internet.'));
+    });
+  });
+}
 
 // ---------- Captura de tela ----------
 
@@ -500,6 +592,7 @@ ipcMain.handle('app:info', () => ({
   platform: process.platform,
   systemAudio: process.platform === 'win32',
   appAudio: appAudio.supported,
+  ps5: ps5.supported,
   defaultExcludedApps: DEFAULT_EXCLUDED_APPS,
   selfExe: path.basename(process.execPath),
   integratedTitleBar: INTEGRATED_TITLE_BAR,
@@ -514,6 +607,20 @@ ipcMain.handle('appaudio:start', (_event, options = {}) => appAudio.start({
 }));
 ipcMain.handle('appaudio:stop', (_event, session) => appAudio.stop(String(session)));
 ipcMain.handle('appaudio:list', () => appAudio.listApps());
+
+ipcMain.handle('ps5:list', () => ps5.list());
+ipcMain.handle('ps5:discover', (_event, options = {}) => ps5.discover({ host: options.host }));
+ipcMain.handle('ps5:register', (_event, options = {}) => ps5.register({
+  host: options.host, pin: options.pin, accountId: options.accountId,
+}));
+ipcMain.handle('ps5:forget', (_event, id) => ps5.forget(String(id)));
+ipcMain.handle('ps5:start', (_event, options = {}) => ps5.start({
+  session: String(options.session || ''), id: String(options.id || ''), settings: options.settings || {},
+}));
+ipcMain.handle('ps5:keyframe', (_event, session) => ps5.requestKeyframe(String(session)));
+ipcMain.handle('ps5:stop', (_event, session) => { ps5.stop(String(session)); });
+ipcMain.handle('ps5:login', () => psnLogin());
+ipcMain.handle('ps5:open-log', () => shell.openPath(path.join(app.getPath('userData'), 'logs')));
 
 ipcMain.handle('clipboard:write', (_event, text) => clipboard.writeText(String(text)));
 // Só o texto, e curto: a interface procura nele um convite copiado.
@@ -600,6 +707,7 @@ app.on('window-all-closed', () => app.quit());
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
   appAudio.stop();
+  ps5.stop();
   if (tray) tray.destroy();
   if (gotSingleInstanceLock) restoreProtocolForPortable();
 });
