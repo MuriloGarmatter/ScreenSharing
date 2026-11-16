@@ -2248,7 +2248,8 @@ function stopShare(reason) {
   state.clockTimer = null;
   hideSuggestion();
   chime('stop');
-  if (reason) toast(reason, 'warn');
+  // Avisos longos (ex.: o PS5 encerrou a Reprodução Remota) ficam mais tempo na tela.
+  if (reason) toast(reason, 'warn', Math.min(20_000, Math.max(5000, reason.length * 70)));
   if (state.inRoom) renderShareUi();
   applyAudioRouting();
   updateKeepAwake();

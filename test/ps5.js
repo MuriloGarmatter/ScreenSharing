@@ -176,7 +176,8 @@ app.whenReady()
     fs.rmSync(STATE_FILE, { force: true });
     console.log(failures ? `\n${failures} falha(s).` : '\nTudo certo.');
     setTimeout(() => {
-      fs.rmSync(TMP, { recursive: true, force: true });
+      // No Windows o Chromium ainda pode estar segurando a pasta: sem o try, o erro impedia o app.exit.
+      try { fs.rmSync(TMP, { recursive: true, force: true }); } catch { /* fica para a limpeza do sistema */ }
       app.exit(failures ? 1 : 0);
     }, 300);
   });

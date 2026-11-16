@@ -55,7 +55,10 @@ Eventos (tipo 2):
 - `{"event":"connecting"}`
 - `{"event":"connected","width":1920,"height":1080,"fps":60,"codec":"h264"}`
 - `{"event":"warning","message":"..."}`
-- `{"event":"quit","reason":"<código do chiaki>","message":"mensagem em português"}`, e em seguida o programa sai.
+- `{"event":"quit","reason":"<código do chiaki>","message":"mensagem em português","detail":"texto do PS5"}`, e em seguida o programa sai.
+  `detail` só vem quando o próprio console mandou um motivo ao desconectar (em inglês); serve para diagnóstico.
+  `STREAM_CONNECTION_REMOTE_DISCONNECTED` no meio da transmissão quase sempre é o usuário pareado entrando no console pelo controle:
+  o PS5 só aceita cada usuário num lugar (controle ou Reprodução Remota).
 - `{"event":"error","fatal":true,"message":"..."}`
 
 Comandos pelo stdin (uma linha de texto cada):

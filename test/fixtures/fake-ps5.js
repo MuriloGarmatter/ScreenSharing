@@ -98,7 +98,7 @@ function stream() {
   const quitAfter = Number(process.env.FAKE_PS5_QUIT_AFTER_MS);
   if (quitAfter > 0) {
     setTimeout(() => {
-      event({ event: 'quit', reason: 'remote', message: 'O PS5 encerrou a Reprodução Remota.' });
+      event({ event: 'quit', reason: 'STREAM_CONNECTION_REMOTE_DISCONNECTED', message: 'O PS5 encerrou a Reprodução Remota.', detail: 'Remote play was disconnected' });
       process.exit(3);
     }, quitAfter);
   }

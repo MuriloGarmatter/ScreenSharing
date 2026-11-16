@@ -945,6 +945,7 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.62); }
 .ps5-pair[hidden] { display: none; }
 .ps5-pair h3 { margin: 0 0 4px; font: 600 16px/1.25 var(--label); }
 .ps5-pair .hint { margin: 0; }
+.ps5-pair .ps5-user-tip { margin-top: 8px; }
 .ps5-steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; color: var(--muted); }
 .ps5-steps b { color: var(--text); font-weight: 600; }
 .ps5-pair .input-row input { flex: 1; min-width: 0; }

@@ -968,7 +968,10 @@ static const char *quit_reason_message(ChiakiQuitReason reason)
 		case CHIAKI_QUIT_REASON_CTRL_UNKNOWN:
 			return "A conexão com o PS5 falhou. Se continuar acontecendo, pareie o console de novo.";
 		case CHIAKI_QUIT_REASON_STREAM_CONNECTION_REMOTE_DISCONNECTED:
-			return "O PS5 encerrou a transmissão.";
+			// Caso mais comum: o usuário pareado com o Telão entrou no console pelo controle.
+			// O PS5 só aceita cada usuário num lugar (controle OU Reprodução Remota).
+			return "O PS5 encerrou a Reprodução Remota. Isso acontece quando o usuário pareado com o Telão entra no console pelo controle. "
+				"Para jogar na TV e transmitir ao mesmo tempo, pareie o Telão com um segundo usuário do PS5 e jogue com o seu usuário de sempre.";
 		case CHIAKI_QUIT_REASON_STREAM_CONNECTION_REMOTE_SHUTDOWN:
 			return "O PS5 foi desligado ou entrou em modo de repouso.";
 		case CHIAKI_QUIT_REASON_STREAM_CONNECTION_UNKNOWN:
@@ -1023,6 +1026,12 @@ static void event_cb(ChiakiEvent *event, void *user)
 			str_add_json(&s, code);
 			str_add(&s, ",\"message\":");
 			str_add_json(&s, message);
+			if(event->quit.reason_str && *event->quit.reason_str)
+			{
+				// Texto que o próprio PS5 mandou ao desconectar (em inglês), para diagnóstico.
+				str_add(&s, ",\"detail\":");
+				str_add_json(&s, event->quit.reason_str);
+			}
 			str_add(&s, "}");
 			emit_event_str(&s);
 			str_free(&s);
