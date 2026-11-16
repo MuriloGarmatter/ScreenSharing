@@ -475,7 +475,8 @@ usuário** no PS5, com outra conta PSN (gratuita).
 
 > **Por que um segundo usuário?** O PS5 aceita cada usuário em um lugar só: no controle **ou** na
 > Reprodução Remota. Se o usuário pareado com o Telão entrar pelo controle, o console encerra a
-> transmissão. Pareie o Telão com o segundo usuário e jogue com o seu de sempre.
+> transmissão. Pareie o Telão com o segundo usuário e jogue com o seu de sempre. Esse caminho vem de
+> relatos de outros jogadores e ainda não foi confirmado com o Telão num PS5 de verdade.
 
 **Na primeira vez (parear):**
 

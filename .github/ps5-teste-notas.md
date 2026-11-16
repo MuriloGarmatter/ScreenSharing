@@ -9,7 +9,9 @@ Instalador de **teste** do Telão com o PS5 (Reprodução Remota, sem placa de c
 
 ## 2. Preparar o PS5 (só na primeira vez)
 
-O PS5 aceita cada usuário em um lugar só: no controle **ou** na Reprodução Remota. Se o usuário pareado com o Telão entrar pelo controle, o console encerra a transmissão. Por isso o Telão usa um **segundo usuário**:
+O PS5 aceita cada usuário em um lugar só: no controle **ou** na Reprodução Remota. Se o usuário pareado com o Telão entrar pelo controle, o console encerra a transmissão. O caminho sugerido é parear o Telão com um **segundo usuário**.
+
+> **Ainda não confirmado.** Esse caminho vem de relatos de outros jogadores, não da Sony, e ainda não foi testado com o Telão. Teste rápido antes de criar a conta: com a transmissão no ar, ligue o controle e escolha **outro** usuário (pode ser um convidado). Se a transmissão continuar, o caminho funciona no seu PS5.
 
 1. No PS5, crie um segundo usuário com **outra conta PSN** (gratuita). Usuário convidado não serve.
 2. Entre no PS5 com esse segundo usuário.
