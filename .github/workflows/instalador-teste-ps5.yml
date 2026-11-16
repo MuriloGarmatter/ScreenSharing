@@ -79,9 +79,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="ps5-teste-${{ github.run_number }}"
+          # As instruções de uso ficam em .github/ps5-teste-notas.md.
+          { cat .github/ps5-teste-notas.md; echo; echo "Commit: ${{ github.sha }}"; } > notas-release.md
           gh release create "$TAG" "dist/${{ steps.arquivo.outputs.name }}" \
             --repo "${{ github.repository }}" \
             --draft \
             --target "${{ github.sha }}" \
             --title "Telão ${{ steps.arquivo.outputs.version }} + PS5 (teste ${{ github.run_number }})" \
-            --notes "Instalador de TESTE com o PS5 (Reprodução Remota). É um rascunho: NÃO publique, senão o Telão de todo mundo tenta atualizar para ele. Baixe o .exe abaixo e instale por cima do Telão. Commit: ${{ github.sha }}"
+            --notes-file notas-release.md

@@ -468,23 +468,30 @@ ligado, e um somzinho confirma (útil com o jogo na frente).
 
 O Telão recebe a imagem e o som do PS5 pela rede da sua casa (a Reprodução Remota do próprio
 console) e transmite para a sala como qualquer tela. **Não precisa de placa de captura** nem de outro
-programa aberto. Você continua jogando na TV, com o controle, normalmente.
+programa aberto. Você continua jogando na TV, com o controle.
 
-**O que precisa:** o PS5 e o PC na **mesma rede** (de preferência o PS5 no cabo) e uma conta PSN.
+**O que precisa:** o PS5 e o PC na **mesma rede** (de preferência o PS5 no cabo) e um **segundo
+usuário** no PS5, com outra conta PSN (gratuita).
+
+> **Por que um segundo usuário?** O PS5 aceita cada usuário em um lugar só: no controle **ou** na
+> Reprodução Remota. Se o usuário pareado com o Telão entrar pelo controle, o console encerra a
+> transmissão. Pareie o Telão com o segundo usuário e jogue com o seu de sempre.
 
 **Na primeira vez (parear):**
 
-1. No PS5, abra **Configurações → Sistema → Reprodução Remota** e ative **Habilitar Reprodução Remota**.
+1. No PS5, entre com o **segundo usuário**, abra **Configurações → Sistema → Reprodução Remota** e
+   ative **Habilitar Reprodução Remota**.
 2. Ainda ali, escolha **Vincular dispositivo**. O PS5 mostra um código de 8 números.
 3. No Telão, clique em **Compartilhar tela**, abra a aba **PS5** e clique em **Parear um PS5**.
 4. O Telão procura o console na rede e preenche o endereço. Se não achar, digite o endereço que
    aparece no PS5 em **Configurações → Rede → Status da conexão**.
-5. Clique em **Entrar na PSN** e faça o login na página da Sony. O Telão só fica com o número da
-   conta, que o PS5 exige para parear: ele não vê a sua senha.
+5. Clique em **Entrar na PSN** e faça o login na página da Sony com a conta do **segundo usuário**.
+   O Telão só fica com o número da conta, que o PS5 exige para parear: ele não vê a sua senha.
 6. Digite o código de 8 números e clique em **Parear**.
 
 **Das outras vezes:** **Compartilhar tela → PS5 →** escolha o console **→ Transmitir**. Se o PS5
-estiver em repouso, o Telão acorda ele (leva uns 20 segundos).
+estiver em repouso, o Telão acorda ele (leva uns 20 segundos). Depois ligue o controle e escolha o
+seu usuário de sempre.
 
 - Para jogos, use a qualidade **Jogo** (1080p · 60 fps). O PS5 entrega no máximo 1080p.
 - O som que vai é o do jogo. O que você fala no Discord ou no Telão não entra.
@@ -492,6 +499,8 @@ estiver em repouso, o Telão acorda ele (leva uns 20 segundos).
 - Netflix e outros apps de vídeo do PS5 aparecem pretos, por proteção contra cópia.
 - Para o repouso funcionar, ative no PS5 **Configurações → Sistema → Economia de energia → Recursos
   disponíveis no modo de repouso → Permanecer conectado à Internet** e **Permitir ligar o PS5 pela rede**.
+- Se a transmissão fechar quando você liga o controle, o controle entrou com o usuário pareado com o
+  Telão: clique em **Esquecer este PS5** e pareie de novo com o segundo usuário.
 - Se algo falhar, o registro fica em `%APPDATA%\Telao\logs\ps5.log`.
 
 ---
