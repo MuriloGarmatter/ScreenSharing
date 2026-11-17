@@ -6,23 +6,21 @@ import { Mesh, REACTIONS, supportsCamera, supportsVoice } from './mesh.js';
 import { Ps5Capture, routePs5Audio, routePs5Event, routePs5Video } from './ps5.js';
 import {
   AUDIO_CONSTRAINTS, BITRATES, CAMERA_CONSTRAINTS, CODECS, cameraErrorMessage, micErrorMessage, voiceConstraints, DEFAULT_SHARE_SETTINGS, FRAME_RATES, OPTIMIZE, QUALITY_PRESETS, RESOLUTIONS,
-  detectHardwareH264, effectiveFps, matchPreset, presetSpec, resolveCodec, suggestLowerSettings, targetBitrate,
+  detectHardwareH264, effectiveFps, matchPreset, presetSpec, resolveCodec, targetBitrate,
   videoConstraints, wantedHeight,
 } from './media.js';
 import { bestColumns } from './layout.js';
 import { outdatedPeers } from './version.js';
 import { playSound, primeSounds } from './sounds.js';
 import {
-  LIMITATION_TEXT, SIGNAL_TEXT, StatsTracker, describeRoute, hardwareLabel, levelFrom, limitReason, peerSignal,
+  LIMITATION_TEXT, SIGNAL_TEXT, StatsTracker, describeRoute, hardwareLabel, levelFrom, peerSignal,
 } from './stats.js';
 import { $, $$, el, formatBitrate, formatFps, hydrateIcons, icon, toast } from './ui.js';
 
 const api = window.telao;
 const Theme = window.TelaoTheme; // theme.js, carregado antes no <head>
 const PREFS_KEY = Theme.PREFS_KEY; // a mesma chave que o theme.js lê na abertura
-const SUGGEST_AFTER_SECONDS = 8; // limitação contínua antes de sugerir algo mais leve
-const SUGGEST_SNOOZE_MS = 5 * 60 * 1000;
-const STATS_INTERVAL_MS = 2000; // estatísticas (sinal, envio, sugestões): a cada 2 s pesa menos
+const STATS_INTERVAL_MS = 2000; // estatísticas (sinal, envio): a cada 2 s pesa menos
 const PREVIEW_FPS = 5; // a prévia de "Sua transmissão" é só para conferir
 
 const state = {
@@ -57,9 +55,6 @@ const state = {
   sharingPeers: new Set(), // quem está transmitindo (para avisar quando alguém começa)
   lastAnnounce: new Map(), // peerId -> hora do último aviso "começou a transmitir"
   hwH264: false, // a placa de vídeo comprime H.264?
-  limit: { reason: null, seconds: 0 },
-  suggestion: null,
-  suggestSnoozeUntil: 0,
   shortcutWarned: false,
   clipboardInvite: null,
   clipboardText: '',
@@ -623,7 +618,6 @@ async function leaveRoom(force = false) {
   state.trackers.clear();
   state.sharingPeers.clear();
   state.pinned = null;
-  hideSuggestion();
   if (state.hosting) {
     state.hosting = null;
     await api.stopServer().catch(() => {});
@@ -1711,7 +1705,6 @@ async function updateStats() {
     renderParticipants();
     renderOutgoing();
   }
-  updateSuggestion();
   refreshShareSettings(); // as estatísticas dizem se a placa de vídeo está comprimindo
 }
 
@@ -1787,46 +1780,6 @@ function renderOutgoing() {
       limit ? el('span', { class: 'limit' }, limit) : null));
   }
   box.replaceChildren(...(rows.length ? rows : [el('p', { class: 'hint' }, 'Ninguém na sala para receber sua transmissão ainda.')]));
-}
-
-function hideSuggestion() {
-  state.suggestion = null;
-  $('#suggestion').hidden = true;
-}
-
-/**
- * Se a internet ou o processador limitam a transmissão por alguns segundos
- * seguidos, sugere ajustes mais leves com um clique.
- */
-function updateSuggestion() {
-  if (!state.share || !state.mesh || state.share.paused) {
-    state.limit = { reason: null, seconds: 0 };
-    hideSuggestion();
-    return;
-  }
-  // Só conta quem está recebendo a imagem.
-  const receiving = [...state.mesh.peers.values()].filter((p) => p.view.video);
-  const reason = limitReason(receiving.map((p) => p.stats?.sendVideo?.limitation));
-  if (!reason) {
-    state.limit = { reason: null, seconds: 0 };
-    hideSuggestion();
-    return;
-  }
-  const step = STATS_INTERVAL_MS / 1000;
-  state.limit = state.limit.reason === reason ? { reason, seconds: state.limit.seconds + step } : { reason, seconds: step };
-  if (state.suggestion || state.limit.seconds < SUGGEST_AFTER_SECONDS || Date.now() < state.suggestSnoozeUntil) return;
-  const suggestion = suggestLowerSettings(readShareSettings(), reason, { hardwareH264: hardwareEncoder() });
-  if (!suggestion) return;
-  const viewers = receiving.length;
-  state.suggestion = suggestion;
-  $('#suggestion-text').textContent = reason === 'cpu'
-    ? 'Seu processador está no limite e a transmissão pode travar.'
-    : `Sua internet não está dando conta de enviar nesta qualidade para ${viewers} ${viewers === 1 ? 'pessoa' : 'pessoas'}.`;
-  $('#suggestion-apply').textContent = suggestion.text;
-  $('#suggestion').hidden = false;
-  $('#suggestion').scrollIntoView({ block: 'nearest' });
-  // Com o jogo na frente, ninguém vê a faixa: avisa (só pisca/notifica fora de foco).
-  api.attention({ title: 'A transmissão está travando', body: `Sugestão: ${suggestion.text}. Clique para abrir o Telão.` }).catch(() => {});
 }
 
 // ---------- Qualidade ----------
@@ -1947,9 +1900,6 @@ function refreshShareSettings() {
 function onQualityChange() {
   prefs.share = readShareSettings();
   savePrefs();
-  // A sugestão foi calculada para os ajustes de antes: recomeça a contagem.
-  state.limit = { reason: null, seconds: 0 };
-  hideSuggestion();
   refreshShareSettings();
   updateBitrateHint();
   renderPresets();
@@ -2246,7 +2196,6 @@ function stopShare(reason) {
   state.meterTimer = null;
   clearInterval(state.clockTimer);
   state.clockTimer = null;
-  hideSuggestion();
   chime('stop');
   // Avisos longos (ex.: o PS5 encerrou a Reprodução Remota) ficam mais tempo na tela.
   if (reason) toast(reason, 'warn', Math.min(20_000, Math.max(5000, reason.length * 70)));
@@ -3487,15 +3436,6 @@ async function init() {
     const first = [...region.querySelectorAll('button, input, select, textarea, a[href], [tabindex]')]
       .find((n) => n.tabIndex >= 0 && !n.disabled && n.getClientRects().length);
     (first || region).focus();
-  });
-  $('#suggestion-apply').addEventListener('click', () => {
-    if (state.suggestion) applyShareSettings(state.suggestion.settings);
-    state.limit = { reason: null, seconds: 0 };
-    hideSuggestion();
-  });
-  $('#suggestion-dismiss').addEventListener('click', () => {
-    state.suggestSnoozeUntil = Date.now() + SUGGEST_SNOOZE_MS;
-    hideSuggestion();
   });
   $('#clipboard-use').addEventListener('click', () => openInvite(state.clipboardInvite));
   $('#clipboard-dismiss').addEventListener('click', () => {

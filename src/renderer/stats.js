@@ -133,22 +133,6 @@ export function peerSignal(stats) {
   return levelFrom({ rtt: stats.route?.rtt ?? null });
 }
 
-/**
- * O que limita a transmissão como um todo, a partir do motivo de cada envio
- * (qualityLimitationReason de cada pessoa): 'cpu', 'bandwidth' ou null.
- * O processador é um só, então um envio limitado por ele já basta. A banda é
- * estimada por pessoa: uma conexão ruim (o Wi-Fi de alguém) não é culpa do seu
- * upload, e o WebRTC já baixa só aquele envio. Por isso a banda só conta quando
- * todos os envios estão limitados (até 2 pessoas) ou a maioria (3 ou mais).
- */
-export function limitReason(reasons) {
-  if (reasons.includes('cpu')) return 'cpu';
-  const limited = reasons.filter((r) => r === 'bandwidth').length;
-  if (!limited) return null;
-  const enough = reasons.length < 3 ? limited === reasons.length : limited > reasons.length / 2;
-  return enough ? 'bandwidth' : null;
-}
-
 export function hardwareLabel(item) {
   if (item?.hardware === true) return 'GPU';
   if (item?.hardware === false) return 'CPU';

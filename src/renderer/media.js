@@ -78,38 +78,6 @@ export function resolveCodec(codec) {
   return codec === 'auto' ? 'H264' : codec;
 }
 
-const RESOLUTION_STEPS = ['480p', '720p', '1080p', '1440p', 'native'];
-
-/**
- * Sugere ajustes mais leves quando a transmissão está limitada pela internet
- * ('bandwidth') ou pelo processador ('cpu'). Devolve { settings, text } ou null.
- */
-export function suggestLowerSettings(settings, reason, { hardwareH264 = false } = {}) {
-  const next = { ...settings };
-  if (reason === 'cpu' && hardwareH264 && resolveCodec(settings.codec) !== 'H264') {
-    next.codec = 'H264';
-    return { settings: next, text: 'Usar a placa de vídeo (H.264)' };
-  }
-  if (next.fps > 30) {
-    next.fps = 30;
-    return { settings: next, text: 'Baixar para 30 quadros/s' };
-  }
-  const step = RESOLUTION_STEPS.indexOf(next.resolution);
-  if (step > 1) {
-    next.resolution = RESOLUTION_STEPS[Math.min(step - 1, 2)]; // nativa/1440p → 1080p, 1080p → 720p
-    return { settings: next, text: `Baixar para ${findResolution(next.resolution).id}` };
-  }
-  if (reason === 'bandwidth' && (next.bitrate === 0 || next.bitrate > 2)) {
-    next.bitrate = 2;
-    return { settings: next, text: 'Limitar a 2 Mb/s' };
-  }
-  if (next.fps > 15) {
-    next.fps = 15;
-    return { settings: next, text: 'Baixar para 15 quadros/s' };
-  }
-  return null;
-}
-
 // Som do computador: estéreo, sem filtros de voz (que estragam música e jogos).
 export const AUDIO_CONSTRAINTS = {
   echoCancellation: false,

@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import {
   QUALITY_PRESETS, effectiveFps, matchPreset, mungeRemoteSdp, pickCodec, resolveCodec, scaleForHeight,
-  sendEncoding, startBitrateKbps, suggestLowerSettings, targetBitrate, videoConstraints, wantedHeight,
+  sendEncoding, startBitrateKbps, targetBitrate, videoConstraints, wantedHeight,
   CAMERA_BITRATE, cameraEncoding, cameraErrorMessage, VOICE_CONSTRAINTS, micErrorMessage,
 } from '../src/renderer/media.js';
 import { CAMERA_VERSION, VOICE_VERSION, supportsCamera, supportsVoice } from '../src/renderer/mesh.js';
@@ -13,7 +13,7 @@ import { AppAudioCapture } from '../src/renderer/app-audio.js';
 import {
   PUBLIC_SERVER, deepLinkFor, inviteLink, parseDeepLink, parseInviteText, parseServerAddress,
 } from '../src/renderer/address.js';
-import { levelFrom, limitReason, peerSignal } from '../src/renderer/stats.js';
+import { levelFrom, peerSignal } from '../src/renderer/stats.js';
 import { bestColumns } from '../src/renderer/layout.js';
 import { compareVersions, outdatedPeers } from '../src/renderer/version.js';
 import { Lobby } from '../worker/src/index.js';
@@ -440,23 +440,6 @@ test('predefinições de qualidade e H.264 automático', () => {
   assert.equal(resolveCodec('VP8'), 'VP8');
 });
 
-test('sugestão de um clique quando a internet ou o processador não dão conta', () => {
-  const game = { resolution: '1080p', fps: 60, bitrate: 0, optimize: 'motion', codec: 'auto' };
-  // Codec escolhido que pesa no processador + placa de vídeo disponível: sugere H.264.
-  assert.equal(suggestLowerSettings({ ...game, codec: 'VP9' }, 'cpu', { hardwareH264: true }).settings.codec, 'H264');
-  // "Automático" com placa de vídeo já é H.264: a próxima saída é baixar o FPS.
-  assert.equal(suggestLowerSettings(game, 'cpu', { hardwareH264: true }).settings.fps, 30);
-  const fps = suggestLowerSettings(game, 'bandwidth');
-  assert.equal(fps.settings.fps, 30);
-  assert.equal(fps.text, 'Baixar para 30 quadros/s');
-  const res = suggestLowerSettings({ ...game, fps: 30 }, 'bandwidth');
-  assert.equal(res.settings.resolution, '720p');
-  assert.equal(res.text, 'Baixar para 720p');
-  assert.equal(suggestLowerSettings({ ...game, resolution: 'native', fps: 30 }, 'cpu').settings.resolution, '1080p');
-  assert.equal(suggestLowerSettings({ ...game, resolution: '720p', fps: 30 }, 'bandwidth').settings.bitrate, 2);
-  assert.equal(suggestLowerSettings({ ...game, resolution: '480p', fps: 15, bitrate: 2 }, 'bandwidth'), null);
-});
-
 test('envio sob medida: a altura em que a tela aparece decide o tamanho enviado', () => {
   // Tela pequena (coluna do destaque, ~140 px) pede 360p; grade média, 540p/720p; grande ou tela cheia, a cheia.
   assert.equal(wantedHeight(140), 360);
@@ -517,19 +500,6 @@ test('sinal: ótimo, bom ou ruim', () => {
   assert.equal(peerSignal({ sendVideo: { bitrate: 1e6, limitation: 'bandwidth' }, remoteVideo: { rtt: 0.02, fractionLost: 0 } }), 'ok');
   assert.equal(peerSignal({ route: { rtt: 0.02 } }), 'good');
   assert.equal(peerSignal(null), null);
-});
-
-test('o que limita a transmissão: processador, seu upload ou só a conexão de alguém', () => {
-  assert.equal(limitReason([]), null);
-  assert.equal(limitReason(['none', 'none']), null);
-  assert.equal(limitReason(['none', 'cpu']), 'cpu', 'o processador é um só');
-  assert.equal(limitReason(['bandwidth']), 'bandwidth');
-  assert.equal(limitReason(['bandwidth', 'bandwidth']), 'bandwidth');
-  assert.equal(limitReason(['bandwidth', 'none']), null, 'uma pessoa com conexão ruim não é culpa do seu upload');
-  assert.equal(limitReason(['bandwidth', 'none', 'none']), null);
-  assert.equal(limitReason(['bandwidth', 'bandwidth', 'none']), 'bandwidth', 'a maioria limitada aponta para o seu upload');
-  assert.equal(limitReason(['bandwidth', 'bandwidth', 'none', 'none']), null);
-  assert.equal(limitReason([undefined, 'bandwidth']), null, 'quem ainda não tem estatística conta como não limitado');
 });
 
 test('argumentos do auxiliar de som em cada modo', () => {

@@ -337,9 +337,9 @@ No painel **Sua transmissão** (à direita) você encontra:
   Os **Ajustes finos** ficam logo abaixo ([explicação](#-qualidade-fps-e-internet)).
 - **Enviando para cada pessoa:** a resolução, o FPS, a velocidade e o sinal de cada amigo.
 
-Se a sua internet ou o seu processador não estiverem dando conta por alguns segundos, aparece uma
-**sugestão de um clique**, como "*Baixar para 30 quadros/s*" ou "*Usar a placa de vídeo (H.264)*".
-**Agora não** esconde a sugestão por 5 minutos.
+A resolução e o FPS que você escolhe **ficam fixos**: o Telão não baixa a qualidade sozinho nem
+mostra avisos para baixar. Se a internet não der conta, a imagem perde um pouco de nitidez (vai
+menos bitrate), mas continua do mesmo tamanho e no mesmo FPS. Para mudar, é com você.
 
 > Pode minimizar o Telão enquanto transmite a **tela inteira**. Mas se estiver transmitindo
 > **uma janela**, não minimize **essa janela**: o Windows para de desenhar janelas minimizadas,
@@ -663,10 +663,10 @@ Valores máximos com bitrate **automático** em "Movimento":
 **Quem transmite**: em **Enviando para cada pessoa**, cada amigo tem uma linha com o sinal e, por
 exemplo, `1920×1080 · 30 fps · 5,8 Mb/s · H264 (GPU)`. Se aparecer:
 
-- **Limitado pela internet (banda):** sua internet (ou a do amigo) não está dando conta. Use a
-  sugestão de um clique, ou diminua o bitrate, a resolução ou o FPS.
-- **Limitado pelo processador (CPU):** seu PC não está dando conta de comprimir o vídeo. Use a
-  sugestão, troque o codec para **H.264** ou diminua a resolução/FPS.
+- **Limitado pela internet (banda):** sua internet (ou a do amigo) não está dando conta. Se a
+  imagem ficar ruim, diminua o bitrate, a resolução ou o FPS.
+- **Limitado pelo processador (CPU):** seu PC não está dando conta de comprimir o vídeo. Troque o
+  codec para **H.264** ou diminua a resolução/FPS.
 - **Limitado pelo navegador:** o próprio motor de vídeo segurou a qualidade por outro motivo. Em geral
   passa sozinho. Se não passar, diminua a resolução.
 - **(tela pequena lá)** depois da resolução: o amigo mostra a sua tela pequena, então vai uma imagem
@@ -856,8 +856,7 @@ A janelinha fica por cima de programas em janela e em **Janela sem bordas** (Bor
 
 ### A imagem trava, fica pixelada ou atrasada
 
-- **Quem transmite:** se aparecer a sugestão de um clique, aceite. Senão, em **Sua transmissão →
-  Enviando para cada pessoa**, veja se aparece "Limitado pela internet (banda)": use **Internet
+- **Quem transmite:** em **Sua transmissão → Enviando para cada pessoa**, veja se aparece "Limitado pela internet (banda)": use **Internet
   fraca** ou diminua o bitrate, a resolução ou o FPS ([tabela de upload](#quanto-de-internet-a-transmissão-usa)).
   Se aparece "Limitado pelo processador (CPU)", troque o codec para **H.264**. Prefira **cabo** a Wi-Fi.
 - **Quem assiste:** o sinal no canto da tela e o ⓘ mostram o FPS, a velocidade e os "pacotes
@@ -978,7 +977,7 @@ protocolo `telao://` não é registrado, para não tomar o lugar do app instalad
 | Comando | O que faz |
 |---|---|
 | `npm start` | Compila o auxiliar de som e abre o app em modo de desenvolvimento. |
-| `npm test` | Testes de lógica: servidor, página do convite, links `telao://`, convites, SDP, bitrate, predefinições, sugestões, sinal, buffer de áudio e cores. Não abre nada. |
+| `npm test` | Testes de lógica: servidor, página do convite, links `telao://`, convites, SDP, bitrate, predefinições, sinal, buffer de áudio e cores. Não abre nada. |
 | `npm run test:ps5` | Testa o caminho do PS5 (vídeo H.264, som, repouso, queda) contra um console falso. **Não abre nada na tela.** |
 | `npm run test:ps5-app` | Testa a aba PS5 e o pareamento no app de verdade, com a janela oculta. **Não abre nada na tela.** |
 | `npm run build:audio` | Só compila o auxiliar de som (`resources/telao-audio.exe`). |

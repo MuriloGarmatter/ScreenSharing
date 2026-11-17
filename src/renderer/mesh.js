@@ -9,6 +9,8 @@ import {
 import { compareVersions } from './version.js';
 
 const CONNECT_TIMEOUT_MS = 10_000;
+// Quem transmite escolhe a resolução e o FPS; a internet só mexe no bitrate.
+const FIXED_QUALITY = 'maintain-framerate-and-resolution';
 const RECONNECT_DELAYS_MS = [1000, 2000, 4000, 8000, 15000];
 // "ping" ao servidor: mantém a conexão viva e mostra ao servidor que ainda estou
 // na sala (o da Cloudflare tira quem ficou mais de 90 s sem mandar).
@@ -776,6 +778,9 @@ export class Mesh extends EventTarget {
       const params = video.getParameters();
       if (params.encodings?.length) {
         const encoding = params.encodings[0];
+        // A resolução e o FPS escolhidos ficam fixos: com a internet apertada, o WebRTC
+        // só baixa o bitrate (a imagem perde nitidez), em vez de diminuir a imagem ou o FPS.
+        params.degradationPreference = FIXED_QUALITY;
         // Tamanho e bitrate sob medida para a tela em que essa pessoa mostra a minha.
         Object.assign(encoding, sendEncoding(share.settings, share.videoTrack.getSettings(), peer.view.height));
         encoding.maxFramerate = share.settings.fps;
@@ -788,6 +793,7 @@ export class Mesh extends EventTarget {
           if (!codec) throw err;
           // Versões do Chromium sem troca de codec por encoding: aplica o resto.
           const retry = video.getParameters();
+          retry.degradationPreference = FIXED_QUALITY;
           Object.assign(retry.encodings[0], {
             maxBitrate: encoding.maxBitrate,
             maxFramerate: encoding.maxFramerate,

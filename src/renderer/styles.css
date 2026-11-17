@@ -858,13 +858,6 @@ details > summary::-webkit-details-marker { display: none; }
 .quality { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .quality .wide { grid-column: 1 / -1; }
 
-.suggestion {
-  display: flex; flex-direction: column; gap: 8px; padding: 10px 12px;
-  border-radius: 4px; border: 1px solid var(--warn-border); background: var(--warn-soft);
-}
-.suggestion p { margin: 0; font-size: 13px; }
-.suggestion-actions { display: flex; gap: 8px; }
-
 /* Atalhos: recolhidos no pé do painel. */
 .shortcut-list { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px 12px; margin: 0; }
 .shortcut-list div { display: contents; }
