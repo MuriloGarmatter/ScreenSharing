@@ -7,6 +7,8 @@ const CONNECT_TIMEOUT_MS = 30_000;
 const FIRST_FRAME_TIMEOUT_MS = 15_000;
 const KEYFRAME_RETRY_MS = 1_000;
 const MAX_DECODE_QUEUE = 30; // mais que isso atrasado: recomeça do próximo quadro completo
+const STATS_INTERVAL_MS = 5_000;
+const STALL_MS = 100; // intervalo entre quadros que conta como travada
 
 const active = new Set();
 
@@ -74,8 +76,9 @@ function createVideoSink() {
       track: generator,
       write(frame) {
         // Fila cheia: descarta este quadro (o próximo já vem atrás), em vez de acumular atraso.
-        if (writer.desiredSize !== null && writer.desiredSize <= 0) return frame.close();
+        if (writer.desiredSize !== null && writer.desiredSize <= 0) { frame.close(); return false; }
         writer.write(frame).catch(() => {});
+        return true;
       },
       close() { writer.close().catch(() => {}); generator.stop(); },
     };
@@ -94,6 +97,7 @@ function createVideoSink() {
       }
       ctx.drawImage(frame, 0, 0);
       frame.close();
+      return true;
     },
     close() { track.stop(); },
   };
@@ -113,6 +117,28 @@ export class Ps5Capture extends EventTarget {
     this.lastKeyRequest = 0;
     this.frames = 0;
     this.waiters = null; // { connected, firstFrame } enquanto a conexão começa
+    this.stats = null;
+    this.statsTimer = null;
+  }
+
+  // ---------- Estatísticas (vão para o ps5.log a cada 5 s) ----------
+
+  resetStats() {
+    this.stats = {
+      since: performance.now(), received: 0, decoded: 0, sinkDrops: 0, resets: 0, keyRequests: 0,
+      lastIn: 0, maxGapIn: 0, lastOut: 0, maxGapOut: 0, stallsOut: 0, maxQueue: 0,
+    };
+  }
+
+  reportStats() {
+    const s = this.stats;
+    if (!s) return;
+    const secs = Math.max(0.001, (performance.now() - s.since) / 1000);
+    const line = `Decodificação em ${secs.toFixed(1)} s: ${s.received} quadros chegaram (${(s.received / secs).toFixed(1)}/s, maior pausa ${Math.round(s.maxGapIn)} ms), `
+      + `${s.decoded} decodificados (${(s.decoded / secs).toFixed(1)}/s, maior pausa ${Math.round(s.maxGapOut)} ms, ${s.stallsOut} pausas acima de ${STALL_MS} ms), `
+      + `${s.sinkDrops} descartados na saída, ${s.resets} reinícios do decodificador, ${s.keyRequests} keyframes pedidos, fila máxima ${s.maxQueue}`;
+    this.api.ps5Stats?.(this.session, line);
+    this.resetStats();
   }
 
   /**
@@ -136,6 +162,8 @@ export class Ps5Capture extends EventTarget {
       if (result?.cancelled || this.stopped) throw new DOMException('Cancelado', 'AbortError');
       await withTimeout(connected, CONNECT_TIMEOUT_MS, 'O PS5 não respondeu a tempo.');
       await withTimeout(firstFrame, FIRST_FRAME_TIMEOUT_MS, 'A imagem do PS5 não chegou.');
+      this.resetStats();
+      this.statsTimer = setInterval(() => this.reportStats(), STATS_INTERVAL_MS);
     } catch (err) {
       this.stop();
       throw err;
@@ -186,10 +214,12 @@ export class Ps5Capture extends EventTarget {
     const now = performance.now();
     if (now - this.lastKeyRequest < KEYFRAME_RETRY_MS) return;
     this.lastKeyRequest = now;
+    if (this.stats) this.stats.keyRequests += 1;
     this.api.ps5Keyframe(this.session);
   }
 
   resetDecoder() {
+    if (this.decoder && this.stats) this.stats.resets += 1;
     if (this.decoder && this.decoder.state !== 'closed') this.decoder.close();
     this.decoder = null;
   }
@@ -212,6 +242,13 @@ export class Ps5Capture extends EventTarget {
 
   handleVideo(session, id, payload) {
     if (session !== this.session || this.stopped) return;
+    const s = this.stats;
+    if (s) {
+      const now = performance.now();
+      if (s.lastIn) s.maxGapIn = Math.max(s.maxGapIn, now - s.lastIn);
+      s.lastIn = now;
+      s.received += 1;
+    }
     const key = isKeyframe(payload);
     if (key) {
       const codec = avcCodec(payload) || this.codec;
@@ -228,6 +265,7 @@ export class Ps5Capture extends EventTarget {
     } else if (!this.decoder) {
       return this.requestKeyframe(); // sem um quadro completo antes, não dá para começar
     }
+    if (s) s.maxQueue = Math.max(s.maxQueue, this.decoder.decodeQueueSize);
     if (this.decoder.decodeQueueSize > MAX_DECODE_QUEUE) {
       // O decodificador ficou para trás: recomeça do próximo quadro completo.
       this.resetDecoder();
@@ -246,7 +284,18 @@ export class Ps5Capture extends EventTarget {
     if (this.stopped || !this.sink) return frame.close();
     this.frames += 1;
     if (this.frames === 1) this.settle('firstFrame', { width: frame.displayWidth, height: frame.displayHeight });
-    this.sink.write(frame);
+    const s = this.stats;
+    if (s) {
+      const now = performance.now();
+      if (s.lastOut) {
+        const gap = now - s.lastOut;
+        s.maxGapOut = Math.max(s.maxGapOut, gap);
+        if (gap > STALL_MS) s.stallsOut += 1;
+      }
+      s.lastOut = now;
+      s.decoded += 1;
+    }
+    if (!this.sink.write(frame) && s) s.sinkDrops += 1;
   }
 
   // ---------- Som e eventos ----------
@@ -300,6 +349,9 @@ export class Ps5Capture extends EventTarget {
     if (this.stopped) return;
     this.stopped = true;
     active.delete(this);
+    clearInterval(this.statsTimer);
+    if (this.stats) this.reportStats();
+    this.stats = null;
     this.failStart(new DOMException('Cancelado', 'AbortError'));
     this.api.ps5Stop(this.session);
     this.resetDecoder();

@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld('telao', {
   ps5Forget: (id) => ipcRenderer.invoke('ps5:forget', id),
   ps5Start: (options) => ipcRenderer.invoke('ps5:start', options),
   ps5Keyframe: (session) => ipcRenderer.invoke('ps5:keyframe', session),
+  ps5Stats: (session, line) => ipcRenderer.send('ps5:stats', session, line),
   ps5Stop: (session) => ipcRenderer.invoke('ps5:stop', session),
   ps5Login: () => ipcRenderer.invoke('ps5:login'),
   ps5OpenLog: () => ipcRenderer.invoke('ps5:open-log'),

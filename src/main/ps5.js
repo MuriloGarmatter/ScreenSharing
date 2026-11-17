@@ -255,6 +255,12 @@ class Ps5 {
     return { session, resolution: profile.resolution, fps: profile.fps };
   }
 
+  /** Linha de estatísticas da interface (decodificação e saída do vídeo), só para o log. */
+  logStats(session, line) {
+    if (session !== this.session) return;
+    this.appendLog(`[Telão] ${line.slice(0, 500)}`);
+  }
+
   /** O decodificador da interface perdeu a sequência: pede um quadro completo ao console. */
   requestKeyframe(session) {
     if (session !== this.session || !this.proc || this.proc.exitCode !== null) return;

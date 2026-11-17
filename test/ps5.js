@@ -39,6 +39,7 @@ ipcMain.handle('ps5:register', (_e, o = {}) => ps5.register(o));
 ipcMain.handle('ps5:forget', (_e, id) => ps5.forget(String(id)));
 ipcMain.handle('ps5:start', (_e, o = {}) => ps5.start({ session: String(o.session), id: String(o.id), settings: o.settings || {} }));
 ipcMain.handle('ps5:keyframe', (_e, session) => ps5.requestKeyframe(String(session)));
+ipcMain.on('ps5:stats', (_e, session, line) => ps5.logStats(String(session), String(line)));
 ipcMain.handle('ps5:stop', (_e, session) => { ps5.stop(String(session)); });
 
 const page = (code) => win.webContents.executeJavaScript(`(async () => { const h = window.harness; ${code} })()`);
@@ -124,6 +125,9 @@ async function main() {
     await page('window.cap.stop();');
     await wait(500);
     assert.equal(ps5.proc, null);
+    // Ao parar, a interface manda as estatísticas finais para o log (para investigar travadas).
+    const log = fs.readFileSync(path.join(TMP, 'logs', 'ps5.log'), 'utf8');
+    assert.match(log, /\[Telão\] Decodificação em [\d.]+ s: \d+ quadros chegaram/);
   });
 
   await step('PS5 em repouso: acorda e conecta', async () => {

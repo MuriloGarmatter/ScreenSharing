@@ -618,6 +618,7 @@ ipcMain.handle('ps5:start', (_event, options = {}) => ps5.start({
   session: String(options.session || ''), id: String(options.id || ''), settings: options.settings || {},
 }));
 ipcMain.handle('ps5:keyframe', (_event, session) => ps5.requestKeyframe(String(session)));
+ipcMain.on('ps5:stats', (_event, session, line) => ps5.logStats(String(session), String(line)));
 ipcMain.handle('ps5:stop', (_event, session) => { ps5.stop(String(session)); });
 ipcMain.handle('ps5:login', () => psnLogin());
 ipcMain.handle('ps5:open-log', () => shell.openPath(path.join(app.getPath('userData'), 'logs')));

@@ -67,6 +67,7 @@
 // Enquanto espera um keyframe, pede outro ao console com esta frequência
 // (o pedido ou o próprio keyframe podem se perder na rede).
 #define IDR_RETRY_MS 1000
+#define STATS_INTERVAL_MS 5000 // de quanto em quanto tempo o log ganha uma linha de estatísticas
 
 // ---------------- Utilidades ----------------
 
@@ -896,6 +897,16 @@ typedef struct
 	uint64_t frames_dropped;
 	volatile bool idr_requested; // comando "idr" do Telão
 
+	// Estatísticas para o log (zeradas a cada STATS_INTERVAL_MS).
+	uint64_t stat_start_ms;
+	uint64_t stat_last_frame_ms;
+	uint64_t stat_max_gap_ms;     // maior intervalo entre dois quadros vindos do console
+	uint32_t stat_frames;         // quadros entregues ao Telão
+	uint32_t stat_lost;           // quadros que a libchiaki perdeu na rede
+	uint32_t stat_dropped;        // quadros descartados esperando keyframe
+	uint32_t stat_idr_requests;
+	volatile uint32_t stat_fec_failures;
+
 	// Som.
 	uint32_t audio_channels;
 	uint32_t audio_rate;
@@ -1044,6 +1055,7 @@ static void event_cb(ChiakiEvent *event, void *user)
 			break;
 		}
 		case CHIAKI_EVENT_VIDEO_FEC_FAILURE:
+			ctx->stat_fec_failures++;
 			CHIAKI_LOGV(&g_log, "Quadro %d perdido (FEC), pedido de IDR %s", (int)event->video_fec_failure.frame_index,
 					event->video_fec_failure.idr_request_sent ? "enviado" : "não enviado");
 			break;
@@ -1092,12 +1104,42 @@ static bool starts_with_start_code(const uint8_t *buf, size_t size)
 
 static void request_idr(StreamCtx *ctx, const char *why)
 {
+	ctx->stat_idr_requests++;
 	ctx->idr_request_ms = chiaki_time_now_monotonic_ms();
 	ChiakiErrorCode err = chiaki_session_request_idr(&ctx->session);
 	if(err != CHIAKI_ERR_SUCCESS)
 		CHIAKI_LOGW(&g_log, "Pedido de keyframe (%s) falhou: %s", why, chiaki_error_string(err));
 	else
 		CHIAKI_LOGI(&g_log, "Pedido de keyframe enviado (%s)", why);
+}
+
+// Uma linha no log a cada STATS_INTERVAL_MS: mostra se a imagem trava já na rede (quadros
+// perdidos, intervalos grandes) ou só depois, no Telão.
+static void stats_frame(StreamCtx *ctx, int32_t frames_lost)
+{
+	uint64_t now = chiaki_time_now_monotonic_ms();
+	if(!ctx->stat_start_ms)
+		ctx->stat_start_ms = now;
+	if(ctx->stat_last_frame_ms && now - ctx->stat_last_frame_ms > ctx->stat_max_gap_ms)
+		ctx->stat_max_gap_ms = now - ctx->stat_last_frame_ms;
+	ctx->stat_last_frame_ms = now;
+	ctx->stat_frames++;
+	if(frames_lost > 0)
+		ctx->stat_lost += (uint32_t)frames_lost;
+	uint64_t elapsed = now - ctx->stat_start_ms;
+	if(elapsed < STATS_INTERVAL_MS)
+		return;
+	CHIAKI_LOGI(&g_log, "Rede PS5 -> PC em %llu ms: %u quadros recebidos (%.1f/s), %u perdidos, %u falhas de FEC, "
+			"%u descartados esperando keyframe, %u keyframes pedidos, maior pausa %llu ms",
+			(unsigned long long)elapsed, ctx->stat_frames, ctx->stat_frames * 1000.0 / (double)elapsed, ctx->stat_lost,
+			ctx->stat_fec_failures, ctx->stat_dropped, ctx->stat_idr_requests, (unsigned long long)ctx->stat_max_gap_ms);
+	ctx->stat_start_ms = now;
+	ctx->stat_max_gap_ms = 0;
+	ctx->stat_frames = 0;
+	ctx->stat_lost = 0;
+	ctx->stat_fec_failures = 0;
+	ctx->stat_dropped = 0;
+	ctx->stat_idr_requests = 0;
 }
 
 // Chamado pela libchiaki com cada quadro H.264 completo (Annex-B). Antes do primeiro
@@ -1141,6 +1183,7 @@ static bool video_cb(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool fr
 
 	// Número do quadro: conta também os que a libchiaki perdeu, para o Telão ver o buraco.
 	ctx->frame_id += 1 + (frames_lost > 0 ? (uint32_t)frames_lost : 0);
+	stats_frame(ctx, frames_lost);
 	if(frames_lost > 0 || frame_recovered)
 		CHIAKI_LOGV(&g_log, "Quadro %u: %d perdido(s)%s", ctx->frame_id, (int)frames_lost, frame_recovered ? ", recuperado" : "");
 
@@ -1154,6 +1197,7 @@ static bool video_cb(uint8_t *buf, size_t buf_size, int32_t frames_lost, bool fr
 	if(ctx->waiting_keyframe && !nal.has_idr)
 	{
 		ctx->frames_dropped++;
+		ctx->stat_dropped++;
 		if(chiaki_time_now_monotonic_ms() - ctx->idr_request_ms >= IDR_RETRY_MS)
 			request_idr(ctx, "esperando keyframe");
 		return true;
